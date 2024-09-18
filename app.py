@@ -239,7 +239,7 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
         search_triggered = True
 
     # Number of points to limit
-    max_total_points = 1000  # Adjust as needed
+    max_total_points = 200  # Adjust as needed
 
     # Existing data handling based on interaction
     if zoomed_out or year_slider_changed or search_triggered:
