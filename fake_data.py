@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 import sqlite3
 
-def generate_synthetic_dataset(num_records=1000000):
+def generate_synthetic_dataset(num_records=100000):
     np.random.seed(42)  # For reproducibility
 
     # Generate random coordinates

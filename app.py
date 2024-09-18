@@ -91,7 +91,7 @@ def get_data_from_db(xmin, xmax, ymin, ymax, year_range):
         AND y BETWEEN ? AND ?
         AND year BETWEEN ? AND ?
         ORDER BY RANDOM()
-        LIMIT 1000;
+        LIMIT 200;
     """
     df = pd.read_sql_query(query, conn, params=(xmin, xmax, ymin, ymax, year_range[0], year_range[1]))
     conn.close()
