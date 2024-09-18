@@ -10,7 +10,7 @@ import dash_bootstrap_components as dbc  # For modal components
 
 # Initialize Dash app with Bootstrap stylesheet
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-server = app.server  # Expose the server variable for Gunicorn
+server = app.server  # Expose the WSGI server
 
 # Database connection
 def get_db_connection():
@@ -281,4 +281,4 @@ def display_patent_details(clickData, n_clicks_close, is_open_state):
 
 if __name__ == '__main__':
     # Run the Dash app
-    app.run_server(debug=True)
+    app.run_server(debug=False)
