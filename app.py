@@ -95,44 +95,58 @@ def get_patent_details_by_id(patent_id):
         return None
 
 # Dash app layout
+# Dash app layout
 app.layout = html.Div([
-    html.H1("The Patents Space", style={'textAlign': 'center'}),
-    
+    html.H1("The Patent Space", style={'textAlign': 'center', 'color': 'white'}),
+
     # Wrapper for graph and slider
     html.Div([
         # Graph
         dcc.Graph(
             id='patent-graph',
             config={'displayModeBar': True, 'scrollZoom': True},
-            style={'height': '80vh', 'width': '90%', 'display': 'inline-block'}
+            style={
+                'height': '80vh',
+                'width': '90%',
+                'display': 'inline-block',
+                'backgroundColor': '#2c2c2c'  # Same dark grey background for the graph area
+            }
         ),
-        
-        # Year slider (now vertical on the right)
+
+        # Year slider (now vertical and centered on the right)
         html.Div([
-            html.Label("Filter by Year Range:"),
+            html.Label("", style={'color': 'white', 'textAlign': 'center'}),
             dcc.RangeSlider(
                 id='year-slider',
                 min=1900,
                 max=2023,
-                value=[2000, 2023],
-                marks={str(year): str(year) for year in range(1900, 2024, 20)},
+                value=[1900, 2023],
+                marks={str(year): {'label': str(year), 'style': {'color': 'white'}} for year in range(1900, 2024, 20)},
                 tooltip={"placement": "left", "always_visible": True},
                 vertical=True,
                 verticalHeight=400
             )
-        ], style={'width': '10%', 'float': 'right', 'padding': '20px'}),
-    ], style={'display': 'flex', 'justifyContent': 'space-between'}),
+        ], style={
+            'width': '10%',
+            'padding': '20px',
+            'display': 'flex',
+            'align-items': 'center',
+            'justify-content': 'center'
+        }),
 
-    
+    ], style={'display': 'flex', 'justifyContent': 'space-between', 'align-items': 'center', 'backgroundColor': '#2c2c2c'}),
+
+    # Search input and button
     html.Div([
         dcc.Input(
             id='search-input',
             type='text',
             placeholder='Search Patent Title',
-            style={'width': '300px'}
+            style={'width': '300px', 'color': 'white', 'backgroundColor': '#3a3a3a', 'border': '1px solid #555'}
         ),
-        html.Button('Search', id='search-button', n_clicks=0)
+        html.Button('Search', id='search-button', n_clicks=0, style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': '1px solid #555'})
     ], style={'textAlign': 'center', 'marginTop': '20px'}),
+    
     html.Div(id='search-output', style={'textAlign': 'center', 'color': 'red', 'marginTop': '10px'}),
 
     # Store components
@@ -146,7 +160,7 @@ app.layout = html.Div([
         [
             dbc.ModalHeader(
                 [
-                    dbc.ModalTitle(id='modal-title'),
+                    dbc.ModalTitle(id='modal-title', style={'color': 'white'}),
                     dbc.Button(
                         "×",
                         id="modal-close-button",
@@ -163,16 +177,17 @@ app.layout = html.Div([
                         },
                     ),
                 ],
-                style={"position": "relative"},
+                style={"position": "relative", 'backgroundColor': '#2c2c2c'},
                 close_button=False,  # Disable the built-in close button
             ),
-            dbc.ModalBody(id='modal-body'),
+            dbc.ModalBody(id='modal-body', style={'color': 'white', 'backgroundColor': '#2c2c2c'}),
         ],
         id='modal',
         is_open=False,
     )
-])
+], style={'backgroundColor': '#2c2c2c', 'height': '100vh'})  # Dark grey background for the whole page
 
+            
 # Update graph based on viewport, year slider, and searched patent
 @app.callback(
     Output('patent-graph', 'figure'),
@@ -373,29 +388,55 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
         combined_data = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_searched'])
         previous_searched_id = None
 
-    # Create the figure
+    combined_data['year'] = pd.to_numeric(combined_data['year'], errors='coerce')
+        # Create the figure
     if not combined_data.empty:
         fig = px.scatter(
             combined_data,
             x='x',
             y='y',
+            color='year',  # Color points based on the 'year' column
             custom_data=['id'],
             hover_data={'x': False, 'y': False, 'title': True, 'year': True, 'codes': True},
-            labels={'x': '', 'y': ''},
+            color_continuous_scale='Viridis',  # Use the 'Viridis' color scale
+            range_color=[1900, 2024],  # Fixed color range from 1900 to 2024
+            labels={'x': '', 'y': '', 'color': 'Year'},
         )
 
-        # Adjust marker properties to highlight the searched patent
-        colors = np.where(combined_data['is_searched'], 'red', 'blue')
-        sizes = np.where(combined_data['is_searched'], 12, 6)
-        fig.update_traces(marker=dict(color=colors, size=sizes))
+        # Force the use of the coloraxis and treat 'year' as continuous
+        fig.update_traces(marker=dict(coloraxis='coloraxis'))
 
-        # Update figure layout
+        # Adjust marker properties to highlight the searched patent
+        sizes = np.where(combined_data['is_searched'], 12, 6)  # Larger size for searched patents
+        fig.update_traces(marker=dict(size=sizes))
+
+        # Update figure layout to set the dark grey background and adjust color bar position
         fig.update_layout(
             clickmode='event+select',
             dragmode='pan',
             uirevision='constant',
-            plot_bgcolor='white',
-            paper_bgcolor='white',
+            plot_bgcolor='#2c2c2c',  # Background of the plot itself (inside axes)
+            paper_bgcolor='#2c2c2c',  # Background of the entire figure
+            font_color='white',  # Set font color for contrast
+            title_font_color='white',  # Set title color to white
+            coloraxis=dict(  # Ensure coloraxis is set to maintain continuous colorbar
+                cmin=1900,  # Fixed minimum year
+                cmax=2025,  # Fixed maximum year
+                colorscale='hot',
+                colorbar=dict(
+                    title="Year",  # Label for the colorbar
+                    tickvals=[1900, 1925, 1950, 1975, 2000, 2025],  # Static tick values
+                    ticktext=['1900', '1925', '1950', '1975', '2000', '2025'],
+                    ticks="outside",
+                    tickcolor='white',
+                    ticklen=5,
+                    len=0.7,  # Adjust the length of the color bar
+                    yanchor="middle",  # Align vertically
+                    y=0.5,  # Place the color bar in the middle
+                    xanchor="left",
+                    x=-0.10,  # Offset it slightly to the right of the graph
+                ),
+            ),
             xaxis=dict(
                 range=[xmin, xmax],
                 constrain='range',
@@ -415,10 +456,18 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
                 zeroline=False,
                 showticklabels=False,
                 showline=False,
+            ),
+            # Add margins to center the plot area horizontally
+            margin=dict(
+                l=150,  # Increase left margin to account for the colorbar
+                r=50,   # Adjust right margin as needed
+                t=50,   # Top margin
+                b=50    # Bottom margin
             )
         )
     else:
         pass
+
     # Prepare data to store in 'graph-data' store
     data_to_store = combined_data.to_dict('records')
 
