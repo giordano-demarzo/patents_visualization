@@ -96,23 +96,34 @@ def get_patent_details_by_id(patent_id):
 
 # Dash app layout
 app.layout = html.Div([
-    html.H1("Patent Visualization Platform", style={'textAlign': 'center'}),
-    dcc.Graph(
-        id='patent-graph',
-        config={'displayModeBar': True, 'scrollZoom': True},
-        style={'height': '80vh'}
-    ),
+    html.H1("The Patents Space", style={'textAlign': 'center'}),
+    
+    # Wrapper for graph and slider
     html.Div([
-        html.Label("Filter by Year Range:"),
-        dcc.RangeSlider(
-            id='year-slider',
-            min=1900,
-            max=2023,
-            value=[2000, 2023],
-            marks={str(year): str(year) for year in range(1900, 2024, 10)},
-            tooltip={"placement": "bottom", "always_visible": True}
-        )
-    ], style={'width': '80%', 'margin': 'auto'}),
+        # Graph
+        dcc.Graph(
+            id='patent-graph',
+            config={'displayModeBar': True, 'scrollZoom': True},
+            style={'height': '80vh', 'width': '90%', 'display': 'inline-block'}
+        ),
+        
+        # Year slider (now vertical on the right)
+        html.Div([
+            html.Label("Filter by Year Range:"),
+            dcc.RangeSlider(
+                id='year-slider',
+                min=1900,
+                max=2023,
+                value=[2000, 2023],
+                marks={str(year): str(year) for year in range(1900, 2024, 20)},
+                tooltip={"placement": "left", "always_visible": True},
+                vertical=True,
+                verticalHeight=400
+            )
+        ], style={'width': '10%', 'float': 'right', 'padding': '20px'}),
+    ], style={'display': 'flex', 'justifyContent': 'space-between'}),
+
+    
     html.Div([
         dcc.Input(
             id='search-input',
@@ -243,11 +254,10 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
 
     # Existing data handling based on interaction
     if zoomed_out or year_slider_changed or search_triggered:
-        # Start fresh, keep only the searched patent if any
-        existing_ids = []
-        if searched_coords:
-            searched_id = searched_coords['id']
+        # After a search or zooming out, reset to fetch points from the full viewport.
+        if search_triggered and searched_coords:
             # Fetch the searched patent
+            searched_id = searched_coords['id']
             conn = get_db_connection()
             query = """
                 SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
@@ -268,8 +278,11 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
             xmax = min(x + delta_x, X_MAX)
             ymin = max(y - delta_y, Y_MIN)
             ymax = min(y + delta_y, Y_MAX)
+
         else:
+            # No search, just zooming or year slider change, fetch points normally
             existing_df = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_searched'])
+            existing_ids = []
 
         # Fetch new random data within the current viewport
         points_to_fetch = max_total_points - len(existing_ids)
@@ -313,6 +326,7 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
             combined_data['is_searched'] = combined_data['is_searched'].fillna(False)
         else:
             combined_data = existing_df.copy()
+
     else:
         # Other interactions or initial load
         if existing_data:
@@ -365,10 +379,9 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
             combined_data,
             x='x',
             y='y',
-            custom_data=['id'],  # Include 'id' in custom data
+            custom_data=['id'],
             hover_data={'x': False, 'y': False, 'title': True, 'year': True, 'codes': True},
-            title='Patent Visualization',
-            labels={'x': 'X Coordinate', 'y': 'Y Coordinate'},
+            labels={'x': '', 'y': ''},
         )
 
         # Adjust marker properties to highlight the searched patent
@@ -381,48 +394,31 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
             clickmode='event+select',
             dragmode='pan',
             uirevision='constant',
+            plot_bgcolor='white',
+            paper_bgcolor='white',
             xaxis=dict(
                 range=[xmin, xmax],
                 constrain='range',
                 fixedrange=False,
                 autorange=False,
-                mirror=True,
-                ticks='outside',
-                showline=True,
-                linewidth=1,
-                linecolor='black',
-                gridcolor='lightgray',
+                showgrid=False,
                 zeroline=False,
+                showticklabels=False,
+                showline=False,
             ),
             yaxis=dict(
                 range=[ymin, ymax],
                 constrain='range',
                 fixedrange=False,
                 autorange=False,
-                mirror=True,
-                ticks='outside',
-                showline=True,
-                linewidth=1,
-                linecolor='black',
-                gridcolor='lightgray',
+                showgrid=False,
                 zeroline=False,
+                showticklabels=False,
+                showline=False,
             )
         )
     else:
-        # If no data, create an empty figure
-        fig = px.scatter(
-            pd.DataFrame(columns=['x', 'y']),
-            x='x',
-            y='y',
-            title='Patent Visualization',
-            labels={'x': 'X Coordinate', 'y': 'Y Coordinate'},
-        )
-        fig.update_layout(
-            clickmode='event+select',
-            dragmode='pan',
-            uirevision='constant'
-        )
-
+        pass
     # Prepare data to store in 'graph-data' store
     data_to_store = combined_data.to_dict('records')
 
