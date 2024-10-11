@@ -29,5 +29,8 @@ def display_page(pathname):
     else:
         return html.H1('404: Page Not Found', style={'textAlign': 'center', 'color': 'red'})
 
+# Expose the server variable for Render
+server = app.server
+
 if __name__ == '__main__':
     app.run_server(debug=True)
