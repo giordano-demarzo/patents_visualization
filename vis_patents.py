@@ -106,11 +106,11 @@ layout = html.Div([
     
     html.Div(
     [
-        html.H1("The Patent Space", style={'textAlign': 'center', 'color': 'white'}),
+        html.H1("Patent Space", style={'textAlign': 'center', 'color': 'white'}),
         # Home button
         html.Div(
-            dcc.Link('Home', href='/', className='home-button'),
-            style={'position': 'absolute', 'top': '15px', 'left': '15px'}
+            dcc.Link('Home', href='/', className='home-button', style={'color': 'white'}),
+            style={'position': 'absolute', 'top': '15px', 'left': '15px', 'color': 'white'}
         ),
     ],
     style={'backgroundColor': '#2c2c2c', 'position': 'relative'}
@@ -171,6 +171,7 @@ layout = html.Div([
     dcc.Store(id='patents-graph-data', data=None),
     dcc.Store(id='patents-prev-viewport', data=None),
     dcc.Store(id='patents-previous-searched-id', data=None),
+    dcc.Store(id='patents-selected-id', data=None),
 
     # Modal component for displaying patent details
     dbc.Modal(
@@ -205,26 +206,43 @@ layout = html.Div([
 ], style={'backgroundColor': '#2c2c2c', 'height': '100vh'})  # Dark grey background for the whole page
 
 # --- Callbacks ---
-
 # Update graph based on viewport, year slider, and searched patent
 @callback(
     Output('patents-graph', 'figure'),
     Output('patents-graph-data', 'data'),
     Output('patents-prev-viewport', 'data'),
-    Output('patents-previous-searched-id', 'data'),
+    Output('patents-selected-id', 'data'),            # Output for selected patent ID
     Input('patents-graph', 'relayoutData'),
     Input('patents-year-slider', 'value'),
     Input('patents-searched-patent-coords', 'data'),
+    Input('patents-graph', 'clickData'),
     State('patents-graph', 'figure'),
     State('patents-graph-data', 'data'),
     State('patents-prev-viewport', 'data'),
-    State('patents-previous-searched-id', 'data')
+    State('patents-selected-id', 'data'),
 )
-def update_graph(relayoutData, year_range, searched_coords, existing_fig, existing_data, prev_viewport, previous_searched_id):
+def update_graph(relayoutData, year_range, searched_coords, clickData, existing_fig, existing_data, prev_viewport, selected_patent_id):
     ctx = callback_context
 
     # Determine what triggered the callback
     triggered_input = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # Handle selection and reset appropriate variables
+    if triggered_input == 'patents-graph':
+        if clickData and 'points' in clickData and len(clickData['points']) > 0:
+            # User clicked on a point
+            selected_patent_id = clickData['points'][0]['customdata'][0]
+            # We will reset 'is_searched' flags later
+        else:
+            # Clicked on empty space
+            selected_patent_id = None
+    elif triggered_input == 'patents-searched-patent-coords':
+        if searched_coords:
+            # New search occurred
+            selected_patent_id = None  # Reset selected patent
+        else:
+            # Searched coords is None (search input was cleared)
+            pass  # Do nothing
 
     # Determine current viewport bounds
     if relayoutData and ('xaxis.range[0]' in relayoutData):
@@ -262,7 +280,7 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
     search_triggered = False
 
     # Detect zooming, panning, and searching
-    if prev_viewport is not None and triggered_input == 'patents-graph':
+    if prev_viewport is not None and triggered_input == 'patents-graph' and relayoutData:
         prev_xmin, prev_xmax = prev_viewport['xmin'], prev_viewport['xmax']
         prev_ymin, prev_ymax = prev_viewport['ymin'], prev_viewport['ymax']
         prev_area = (prev_xmax - prev_xmin) * (prev_ymax - prev_ymin)
@@ -287,35 +305,34 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
 
     # Existing data handling based on interaction
     if zoomed_out or year_slider_changed or search_triggered:
-        # After a search or zooming out, reset to fetch points from the full viewport.
-        if search_triggered and searched_coords:
-            # Fetch the searched patent
-            searched_id = searched_coords['id']
+        existing_df = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year'])
+        existing_ids = []
+
+        # Fetch the selected patent if it exists
+        if selected_patent_id is not None:
             conn = get_db_connection()
             query = """
                 SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
                 WHERE rowid = ? LIMIT 1;
             """
-            df_searched = pd.read_sql_query(query, conn, params=(searched_id,))
+            df_selected = pd.read_sql_query(query, conn, params=(selected_patent_id,))
             conn.close()
-            df_searched['is_searched'] = True
-            existing_df = df_searched
-            existing_ids = df_searched['id'].tolist()
+            existing_df = pd.concat([existing_df, df_selected], ignore_index=True, sort=False)
+            existing_ids.append(selected_patent_id)
 
-            # Center the visualization on the searched patent
-            x = searched_coords['x']
-            y = searched_coords['y']
-            delta_x = (X_MAX - X_MIN) / 10  # Adjust delta as needed
-            delta_y = (Y_MAX - Y_MIN) / 10  # Adjust delta as needed
-            xmin = max(x - delta_x, X_MIN)
-            xmax = min(x + delta_x, X_MAX)
-            ymin = max(y - delta_y, Y_MIN)
-            ymax = min(y + delta_y, Y_MAX)
-
-        else:
-            # No search, just zooming or year slider change, fetch points normally
-            existing_df = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_searched'])
-            existing_ids = []
+        # Fetch the searched patent if it exists
+        if searched_coords:
+            searched_id = searched_coords['id']
+            if searched_id not in existing_ids:
+                conn = get_db_connection()
+                query = """
+                    SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
+                    WHERE rowid = ? LIMIT 1;
+                """
+                df_searched = pd.read_sql_query(query, conn, params=(searched_id,))
+                conn.close()
+                existing_df = pd.concat([existing_df, df_searched], ignore_index=True, sort=False)
+                existing_ids.append(searched_id)
 
         # Fetch new random data within the current viewport
         points_to_fetch = max_total_points - len(existing_ids)
@@ -323,16 +340,12 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
             new_data = get_data_from_db(
                 xmin, xmax, ymin, ymax, year_range, exclude_ids=existing_ids, limit=points_to_fetch
             )
-            # Initialize 'is_searched' column in new data
-            new_data['is_searched'] = False
-            # Combine the new data with existing (searched patent)
+            # Combine the new data with existing
             combined_data = pd.concat([existing_df, new_data], ignore_index=True, sort=False).drop_duplicates(subset='id')
-            combined_data['is_searched'] = combined_data['is_searched'].fillna(False)
         else:
             combined_data = existing_df.copy()
 
     elif zoomed_in or panned:
-        # Zoomed in or panned: Keep existing points within new viewport and add new points
         if existing_data:
             existing_df = pd.DataFrame(existing_data)
             # Keep existing points within the new viewport
@@ -342,47 +355,67 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
             ]
             existing_ids = existing_df['id'].tolist()
         else:
-            existing_df = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_searched'])
+            existing_df = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year'])
             existing_ids = []
+
+        # Fetch the selected patent if it's not in existing data
+        if selected_patent_id is not None and selected_patent_id not in existing_ids:
+            conn = get_db_connection()
+            query = """
+                SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
+                WHERE rowid = ? LIMIT 1;
+            """
+            df_selected = pd.read_sql_query(query, conn, params=(selected_patent_id,))
+            conn.close()
+            existing_df = pd.concat([existing_df, df_selected], ignore_index=True, sort=False)
+            existing_ids.append(selected_patent_id)
+
+        # Fetch the searched patent if it's not in existing data
+        if searched_coords:
+            searched_id = searched_coords['id']
+            if searched_id not in existing_ids:
+                conn = get_db_connection()
+                query = """
+                    SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
+                    WHERE rowid = ? LIMIT 1;
+                """
+                df_searched = pd.read_sql_query(query, conn, params=(searched_id,))
+                conn.close()
+                existing_df = pd.concat([existing_df, df_searched], ignore_index=True, sort=False)
+                existing_ids.append(searched_id)
 
         # Calculate number of points to add
         points_to_add = max_total_points - len(existing_df)
         if points_to_add > 0:
-            # Fetch new data within the new viewport, excluding existing ids
             new_data = get_data_from_db(
                 xmin, xmax, ymin, ymax, year_range, exclude_ids=existing_ids, limit=points_to_add
             )
-            # Initialize 'is_searched' column in new data
-            new_data['is_searched'] = False
-            # Combine existing data and new data
             combined_data = pd.concat([existing_df, new_data], ignore_index=True, sort=False).drop_duplicates(subset='id')
-            combined_data['is_searched'] = combined_data['is_searched'].fillna(False)
         else:
             combined_data = existing_df.copy()
 
     else:
-        # Other interactions or initial load
         if existing_data:
             combined_data = pd.DataFrame(existing_data)
         else:
-            # Fetch initial data if no existing data
             combined_data = get_data_from_db(
                 xmin, xmax, ymin, ymax, year_range, limit=max_total_points
             )
-            combined_data['is_searched'] = False
 
-    # Ensure 'id' column is of integer type
-    if not combined_data.empty:
-        combined_data['id'] = combined_data['id'].astype(int)
+        # Fetch the selected patent if it's not in combined_data
+        if selected_patent_id is not None and selected_patent_id not in combined_data['id'].values:
+            conn = get_db_connection()
+            query = """
+                SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
+                WHERE rowid = ? LIMIT 1;
+            """
+            df_selected = pd.read_sql_query(query, conn, params=(selected_patent_id,))
+            conn.close()
+            combined_data = pd.concat([combined_data, df_selected], ignore_index=True, sort=False).drop_duplicates(subset='id')
 
-        # Reset 'is_searched' flag for previous searched patent
-        if previous_searched_id is not None:
-            combined_data.loc[combined_data['id'] == previous_searched_id, 'is_searched'] = False
-
-        # Handle the new searched patent
+        # Fetch the searched patent if it's not in combined_data
         if searched_coords:
             searched_id = searched_coords['id']
-            # Add the new searched patent to combined_data if not present
             if searched_id not in combined_data['id'].values:
                 conn = get_db_connection()
                 query = """
@@ -391,47 +424,64 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
                 """
                 df_searched = pd.read_sql_query(query, conn, params=(searched_id,))
                 conn.close()
-                df_searched['is_searched'] = True
                 combined_data = pd.concat([combined_data, df_searched], ignore_index=True, sort=False).drop_duplicates(subset='id')
-                combined_data['is_searched'] = combined_data['is_searched'].fillna(False)
-            else:
-                # Set 'is_searched' flag for the searched patent
-                combined_data.loc[combined_data['id'] == searched_id, 'is_searched'] = True
 
-            # Update previous_searched_id
-            previous_searched_id = searched_id
+    # After fetching and combining data, set flags appropriately
+    if not combined_data.empty:
+        combined_data['id'] = combined_data['id'].astype(int)
+
+        # Set 'is_selected' flag
+        combined_data['is_selected'] = combined_data['id'] == selected_patent_id
+
+        # Set 'is_searched' flag
+        if searched_coords:
+            searched_id = searched_coords['id']
+            combined_data['is_searched'] = combined_data['id'] == searched_id
+        else:
+            combined_data['is_searched'] = False
+
+        # Reset 'is_searched' flags if a new click occurred
+        if triggered_input == 'patents-graph':
+            combined_data['is_searched'] = False
+
+        # Reset 'is_selected' flags if a new search occurred
+        if triggered_input == 'patents-searched-patent-coords':
+            combined_data['is_selected'] = False
 
     else:
-        # If combined_data is empty, create an empty DataFrame with necessary columns
-        combined_data = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_searched'])
-        previous_searched_id = None
-
-    combined_data['year'] = pd.to_numeric(combined_data['year'], errors='coerce')
+        combined_data = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_selected', 'is_searched'])
 
     # Create the figure
     if not combined_data.empty:
+        combined_data['year'] = pd.to_numeric(combined_data['year'], errors='coerce')
+
         fig = px.scatter(
             combined_data,
             x='x',
             y='y',
             color='year',  # Color points based on the 'year' column
             custom_data=['id'],
-            hover_data={'x': False, 'y': False, 'title': True, 'year': False, 'codes': False},
+            hover_name='title',  # Use 'hover_name' to display only the title
+            hover_data={'x': False, 'y': False, 'year': False, 'codes': False},
             color_continuous_scale='Viridis',  # Use the 'Viridis' color scale
-            range_color=[2006, 2010],  # Fixed color range from 1900 to 2024
+            range_color=[2006, 2010],  # Adjust the range as needed
             labels={'x': '', 'y': '', 'color': 'Year'},
         )
 
         # Force the use of the coloraxis and treat 'year' as continuous
         fig.update_traces(marker=dict(coloraxis='coloraxis'))
 
-        # Adjust marker properties to highlight the searched patent
-        sizes = np.where(combined_data['is_searched'], 20, 6)  # Larger size for searched patents
+        # Adjust marker sizes to highlight the selected and searched patents
+        sizes = np.where(
+            combined_data['is_selected'] | combined_data['is_searched'],
+            20,  # Larger size for selected/searched patents
+            6    # Default size for other patents
+        )
         fig.update_traces(marker=dict(size=sizes))
 
         # Update figure layout to set the dark grey background and adjust color bar position
         fig.update_layout(
-            clickmode='event+select',
+            clickmode='event',  # Changed from 'event+select' to 'event'
             dragmode='pan',
             uirevision='constant',
             plot_bgcolor='#2c2c2c',  # Background of the plot itself (inside axes)
@@ -444,8 +494,6 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
                 colorscale='hot',
                 colorbar=dict(
                     title="Year",  # Label for the colorbar
-                    # tickvals=[1900, 1925, 1950, 1975, 2000, 2025],  # Static tick values
-                    # ticktext=['1900', '1925', '1950', '1975', '2000', '2025'],
                     ticks="outside",
                     tickcolor='white',
                     ticklen=5,
@@ -493,7 +541,7 @@ def update_graph(relayoutData, year_range, searched_coords, existing_fig, existi
     # Store the current viewport bounds
     viewport_data = {'xmin': xmin, 'xmax': xmax, 'ymin': ymin, 'ymax': ymax}
 
-    return fig, data_to_store, viewport_data, previous_searched_id
+    return fig, data_to_store, viewport_data, selected_patent_id
 
 # Search functionality
 @callback(

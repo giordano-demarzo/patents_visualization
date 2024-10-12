@@ -44,8 +44,35 @@ layout = html.Div([
             ),
         ]
     ),
+    
+   # Buttons with custom white margin effect
     html.Div([
-        dbc.Button("Patents Visualization", href='/vis_patents', color='primary', className='me-2', style={'margin': '10px'}),
-        dbc.Button("Codes Visualization", href='/vis_codes', color='secondary', className='me-2', style={'margin': '10px'})
+        html.Div(  # Wrapper for white margin effect
+            [
+                dbc.Button(
+                    "Patent Space", 
+                    href='/vis_patents', 
+                    style={
+                        'backgroundColor': '#3a3a3a', 
+                        'color': 'white', 
+                        'margin': '10px', 
+                        'border': '2px solid #3a3a3a',  # Custom border color (same as button color)
+                        'outline': 'none'  # Remove blue focus outline
+                    }
+                ),
+                dbc.Button(
+                    "Technology Space", 
+                    href='/vis_codes', 
+                    style={
+                        'backgroundColor': '#3a3a3a', 
+                        'color': 'white', 
+                        'margin': '10px', 
+                        'border': '2px solid #3a3a3a',  # Custom border color (same as button color)
+                        'outline': 'none'  # Remove blue focus outline
+                    }
+                )
+            ],
+        ),
     ], style={'textAlign': 'center', 'marginTop': '50px'}),
+    
 ], style={'backgroundColor': '#2c2c2c', 'height': '100vh', 'paddingTop': '50px'})

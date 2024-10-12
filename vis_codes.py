@@ -59,11 +59,11 @@ layout = html.Div([
     # Title with dark background
     html.Div(
     [
-        html.H1("The Technology Space", style={'textAlign': 'center', 'color': 'white'}),
+        html.H1("Technology Space", style={'textAlign': 'center', 'color': 'white'}),
         # Home button
         html.Div(
-            dcc.Link('Home', href='/', className='home-button'),
-            style={'position': 'absolute', 'top': '15px', 'left': '15px'}
+            dcc.Link('Home', href='/', className='home-button', style={'color': 'white'}),
+            style={'position': 'absolute', 'top': '15px', 'left': '15px', 'color': 'white'}
         ),
     ],
     style={'backgroundColor': '#2c2c2c', 'position': 'relative'}
