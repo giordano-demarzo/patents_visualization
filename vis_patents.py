@@ -106,7 +106,7 @@ layout = html.Div([
     
     html.Div(
     [
-        html.H1("Patent Space", style={'textAlign': 'center', 'color': 'white'}),
+        html.H1("The Patent Space", style={'textAlign': 'center', 'color': 'white'}),
         # Home button
         html.Div(
             dcc.Link('Home', href='/', className='home-button', style={'color': 'white'}),
@@ -206,12 +206,11 @@ layout = html.Div([
 ], style={'backgroundColor': '#2c2c2c', 'height': '100vh'})  # Dark grey background for the whole page
 
 # --- Callbacks ---
-# Update graph based on viewport, year slider, and searched patent
 @callback(
     Output('patents-graph', 'figure'),
     Output('patents-graph-data', 'data'),
     Output('patents-prev-viewport', 'data'),
-    Output('patents-selected-id', 'data'),            # Output for selected patent ID
+    Output('patents-selected-id', 'data'),  # Output for selected patent ID
     Input('patents-graph', 'relayoutData'),
     Input('patents-year-slider', 'value'),
     Input('patents-searched-patent-coords', 'data'),
@@ -219,40 +218,74 @@ layout = html.Div([
     State('patents-graph', 'figure'),
     State('patents-graph-data', 'data'),
     State('patents-prev-viewport', 'data'),
-    State('patents-selected-id', 'data'),
+    State('patents-selected-id', 'data')
 )
 def update_graph(relayoutData, year_range, searched_coords, clickData, existing_fig, existing_data, prev_viewport, selected_patent_id):
     ctx = callback_context
 
-    # Determine what triggered the callback
-    triggered_input = ctx.triggered[0]['prop_id'].split('.')[0]
+    # Get the triggered property id
+    triggered_prop_id = ctx.triggered[0]['prop_id']
+
+    # Initialize variables
+    xmin, xmax = X_MIN, X_MAX
+    ymin, ymax = Y_MIN, Y_MAX
 
     # Handle selection and reset appropriate variables
-    if triggered_input == 'patents-graph':
+    if triggered_prop_id == 'patents-graph.clickData':
         if clickData and 'points' in clickData and len(clickData['points']) > 0:
             # User clicked on a point
             selected_patent_id = clickData['points'][0]['customdata'][0]
-            # We will reset 'is_searched' flags later
+            # Reset searched patent
+            searched_coords = None
         else:
             # Clicked on empty space
             selected_patent_id = None
-    elif triggered_input == 'patents-searched-patent-coords':
+            searched_coords = None  # Reset both
+    elif triggered_prop_id == 'patents-searched-patent-coords.data':
         if searched_coords:
             # New search occurred
-            selected_patent_id = None  # Reset selected patent
+            selected_patent_id = searched_coords['id']  # Simulate a click on the searched patent
+            # Adjust viewport to center on the searched patent
+            x = searched_coords['x']
+            y = searched_coords['y']
+            delta_x = (X_MAX - X_MIN) / 10  # Adjust delta as needed
+            delta_y = (Y_MAX - Y_MIN) / 10  # Adjust delta as needed
+            xmin = max(x - delta_x, X_MIN)
+            xmax = min(x + delta_x, X_MAX)
+            ymin = max(y - delta_y, Y_MIN)
+            ymax = min(y + delta_y, Y_MAX)
         else:
             # Searched coords is None (search input was cleared)
-            pass  # Do nothing
-
-    # Determine current viewport bounds
-    if relayoutData and ('xaxis.range[0]' in relayoutData):
-        xmin = relayoutData['xaxis.range[0]']
-        xmax = relayoutData['xaxis.range[1]']
-        ymin = relayoutData['yaxis.range[0]']
-        ymax = relayoutData['yaxis.range[1]']
+            selected_patent_id = None
+            # Reset viewport to previous or default
+            if relayoutData and ('xaxis.range[0]' in relayoutData):
+                xmin = relayoutData['xaxis.range[0]']
+                xmax = relayoutData['xaxis.range[1]']
+                ymin = relayoutData['yaxis.range[0]']
+                ymax = relayoutData['yaxis.range[1]']
+            elif prev_viewport:
+                xmin = prev_viewport.get('xmin', X_MIN)
+                xmax = prev_viewport.get('xmax', X_MAX)
+                ymin = prev_viewport.get('ymin', Y_MIN)
+                ymax = prev_viewport.get('ymax', Y_MAX)
+            else:
+                xmin, xmax = X_MIN, X_MAX
+                ymin, ymax = Y_MIN, Y_MAX
     else:
-        xmin, xmax = X_MIN, X_MAX
-        ymin, ymax = Y_MIN, Y_MAX
+        # For other triggers (e.g., panning, zooming), get viewport from relayoutData or previous viewport
+        if relayoutData and ('xaxis.range[0]' in relayoutData):
+            xmin = relayoutData['xaxis.range[0]']
+            xmax = relayoutData['xaxis.range[1]']
+            ymin = relayoutData['yaxis.range[0]']
+            ymax = relayoutData['yaxis.range[1]']
+        elif prev_viewport:
+            xmin = prev_viewport.get('xmin', X_MIN)
+            xmax = prev_viewport.get('xmax', X_MAX)
+            ymin = prev_viewport.get('ymin', Y_MIN)
+            ymax = prev_viewport.get('ymax', Y_MAX)
+        else:
+            xmin, xmax = X_MIN, X_MAX
+            ymin, ymax = Y_MIN, Y_MAX
 
     # Adjust viewport bounds to stay within data limits and prevent zooming out beyond initial view
     x_range = xmax - xmin
@@ -272,15 +305,14 @@ def update_graph(relayoutData, year_range, searched_coords, clickData, existing_
     ymin = max(ymin, Y_MIN)
     ymax = min(ymax, Y_MAX)
 
-    # Initialize variables
+    # Detect zooming, panning, and searching
     zoomed_out = False
     zoomed_in = False
     panned = False
     year_slider_changed = False
     search_triggered = False
 
-    # Detect zooming, panning, and searching
-    if prev_viewport is not None and triggered_input == 'patents-graph' and relayoutData:
+    if prev_viewport is not None and relayoutData:
         prev_xmin, prev_xmax = prev_viewport['xmin'], prev_viewport['xmax']
         prev_ymin, prev_ymax = prev_viewport['ymin'], prev_viewport['ymax']
         prev_area = (prev_xmax - prev_xmin) * (prev_ymax - prev_ymin)
@@ -292,12 +324,10 @@ def update_graph(relayoutData, year_range, searched_coords, clickData, existing_
         elif (xmin != prev_xmin) or (xmax != prev_xmax) or (ymin != prev_ymin) or (ymax != prev_ymax):
             panned = True
 
-    # Detect if year slider changed
-    if triggered_input == 'patents-year-slider':
+    if triggered_prop_id == 'patents-year-slider.value':
         year_slider_changed = True
 
-    # Detect if a search occurred
-    if triggered_input == 'patents-searched-patent-coords' and searched_coords:
+    if triggered_prop_id == 'patents-searched-patent-coords.data' and searched_coords:
         search_triggered = True
 
     # Number of points to limit
@@ -320,27 +350,12 @@ def update_graph(relayoutData, year_range, searched_coords, clickData, existing_
             existing_df = pd.concat([existing_df, df_selected], ignore_index=True, sort=False)
             existing_ids.append(selected_patent_id)
 
-        # Fetch the searched patent if it exists
-        if searched_coords:
-            searched_id = searched_coords['id']
-            if searched_id not in existing_ids:
-                conn = get_db_connection()
-                query = """
-                    SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
-                    WHERE rowid = ? LIMIT 1;
-                """
-                df_searched = pd.read_sql_query(query, conn, params=(searched_id,))
-                conn.close()
-                existing_df = pd.concat([existing_df, df_searched], ignore_index=True, sort=False)
-                existing_ids.append(searched_id)
-
         # Fetch new random data within the current viewport
         points_to_fetch = max_total_points - len(existing_ids)
         if points_to_fetch > 0:
             new_data = get_data_from_db(
                 xmin, xmax, ymin, ymax, year_range, exclude_ids=existing_ids, limit=points_to_fetch
             )
-            # Combine the new data with existing
             combined_data = pd.concat([existing_df, new_data], ignore_index=True, sort=False).drop_duplicates(subset='id')
         else:
             combined_data = existing_df.copy()
@@ -369,20 +384,6 @@ def update_graph(relayoutData, year_range, searched_coords, clickData, existing_
             conn.close()
             existing_df = pd.concat([existing_df, df_selected], ignore_index=True, sort=False)
             existing_ids.append(selected_patent_id)
-
-        # Fetch the searched patent if it's not in existing data
-        if searched_coords:
-            searched_id = searched_coords['id']
-            if searched_id not in existing_ids:
-                conn = get_db_connection()
-                query = """
-                    SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
-                    WHERE rowid = ? LIMIT 1;
-                """
-                df_searched = pd.read_sql_query(query, conn, params=(searched_id,))
-                conn.close()
-                existing_df = pd.concat([existing_df, df_searched], ignore_index=True, sort=False)
-                existing_ids.append(searched_id)
 
         # Calculate number of points to add
         points_to_add = max_total_points - len(existing_df)
@@ -413,43 +414,15 @@ def update_graph(relayoutData, year_range, searched_coords, clickData, existing_
             conn.close()
             combined_data = pd.concat([combined_data, df_selected], ignore_index=True, sort=False).drop_duplicates(subset='id')
 
-        # Fetch the searched patent if it's not in combined_data
-        if searched_coords:
-            searched_id = searched_coords['id']
-            if searched_id not in combined_data['id'].values:
-                conn = get_db_connection()
-                query = """
-                    SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
-                    WHERE rowid = ? LIMIT 1;
-                """
-                df_searched = pd.read_sql_query(query, conn, params=(searched_id,))
-                conn.close()
-                combined_data = pd.concat([combined_data, df_searched], ignore_index=True, sort=False).drop_duplicates(subset='id')
-
-    # After fetching and combining data, set flags appropriately
+    # Ensure 'id' column is of integer type
     if not combined_data.empty:
         combined_data['id'] = combined_data['id'].astype(int)
 
-        # Set 'is_selected' flag
+        # Set 'is_selected' flag for the selected patent
         combined_data['is_selected'] = combined_data['id'] == selected_patent_id
-
-        # Set 'is_searched' flag
-        if searched_coords:
-            searched_id = searched_coords['id']
-            combined_data['is_searched'] = combined_data['id'] == searched_id
-        else:
-            combined_data['is_searched'] = False
-
-        # Reset 'is_searched' flags if a new click occurred
-        if triggered_input == 'patents-graph':
-            combined_data['is_searched'] = False
-
-        # Reset 'is_selected' flags if a new search occurred
-        if triggered_input == 'patents-searched-patent-coords':
-            combined_data['is_selected'] = False
-
     else:
-        combined_data = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_selected', 'is_searched'])
+        # Handle empty combined_data
+        combined_data = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_selected'])
 
     # Create the figure
     if not combined_data.empty:
@@ -471,37 +444,37 @@ def update_graph(relayoutData, year_range, searched_coords, clickData, existing_
         # Force the use of the coloraxis and treat 'year' as continuous
         fig.update_traces(marker=dict(coloraxis='coloraxis'))
 
-        # Adjust marker sizes to highlight the selected and searched patents
+        # Adjust marker sizes to highlight the selected patent
         sizes = np.where(
-            combined_data['is_selected'] | combined_data['is_searched'],
-            20,  # Larger size for selected/searched patents
+            combined_data['is_selected'],
+            20,  # Larger size for selected patent
             6    # Default size for other patents
         )
         fig.update_traces(marker=dict(size=sizes))
 
-        # Update figure layout to set the dark grey background and adjust color bar position
+        # Update figure layout
         fig.update_layout(
-            clickmode='event',  # Changed from 'event+select' to 'event'
+            clickmode='event',
             dragmode='pan',
             uirevision='constant',
-            plot_bgcolor='#2c2c2c',  # Background of the plot itself (inside axes)
-            paper_bgcolor='#2c2c2c',  # Background of the entire figure
-            font_color='white',  # Set font color for contrast
-            title_font_color='white',  # Set title color to white
-            coloraxis=dict(  # Ensure coloraxis is set to maintain continuous colorbar
-                cmin=2005,  # Fixed minimum year
-                cmax=2010,  # Fixed maximum year
+            plot_bgcolor='#2c2c2c',
+            paper_bgcolor='#2c2c2c',
+            font_color='white',
+            title_font_color='white',
+            coloraxis=dict(
+                cmin=2005,
+                cmax=2010,
                 colorscale='hot',
                 colorbar=dict(
-                    title="Year",  # Label for the colorbar
+                    title="Year",
                     ticks="outside",
                     tickcolor='white',
                     ticklen=5,
-                    len=0.7,  # Adjust the length of the color bar
-                    yanchor="middle",  # Align vertically
-                    y=0.5,  # Place the color bar in the middle
+                    len=0.7,
+                    yanchor="middle",
+                    y=0.5,
                     xanchor="left",
-                    x=-0.10,  # Offset it slightly to the right of the graph
+                    x=-0.10,
                 ),
             ),
             xaxis=dict(
@@ -524,12 +497,11 @@ def update_graph(relayoutData, year_range, searched_coords, clickData, existing_
                 showticklabels=False,
                 showline=False,
             ),
-            # Add margins to center the plot area horizontally
             margin=dict(
-                l=150,  # Increase left margin to account for the colorbar
-                r=50,   # Adjust right margin as needed
-                t=50,   # Top margin
-                b=50    # Bottom margin
+                l=150,
+                r=50,
+                t=50,
+                b=50
             )
         )
     else:
