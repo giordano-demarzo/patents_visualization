@@ -79,3 +79,113 @@ final_df.to_sql('patents', conn, if_exists='replace', index=False)
 conn.close()
 
 print("Data successfully exported to patents.db")
+
+#%%TSNE FOR CODES 
+import pandas as pd
+import pickle
+import numpy as np
+from sklearn.manifold import TSNE
+import umap
+
+
+# Load the .pkl file
+with open('data/average_embeddings_2019_2023_aggregated.pkl', 'rb') as f:
+    data = pickle.load(f)
+
+# Create a DataFrame
+df = pd.DataFrame(data)
+
+# Convert the list of embeddings into a NumPy array
+embeddings = np.array(df['embedding'].tolist())
+
+# # Perform t-SNE on the embeddings
+# tsne = TSNE(n_components=2, random_state=42)
+# tsne_results = tsne.fit_transform(embeddings)
+
+# # Add the t-SNE results (x, y) to the DataFrame
+# df['x'] = tsne_results[:, 0]
+# df['y'] = tsne_results[:, 1]
+
+# Perform UMAP on the embeddings
+umap_model = umap.UMAP(n_components=2, n_jobs=4)
+umap_results = umap_model.fit_transform(embeddings)
+
+# Add the UMAP results (x, y) to the DataFrame
+df['x'] = umap_results[:, 0]
+df['y'] = umap_results[:, 1]
+
+# Placeholder for the 'name' column
+df['name'] = 'Placeholder'
+
+# Create a CSV file for each year
+for year in df['year'].unique():
+    df_year = df[df['year'] == year][['x', 'y', 'tech_code', 'name']].copy()
+    df_year.columns = ['x', 'y', 'code', 'name']  # Renaming columns to match required output
+    df_year.to_csv(f'data/codes_data/code_{year}.csv', index=False)
+
+print("t-SNE and file creation complete.")
+
+#%%COMPUTE TRAJECTORIES FOR CODES 
+
+import pandas as pd
+import numpy as np
+import glob
+from scipy.interpolate import interp1d
+
+# Step 1: Load all data files
+def load_data():
+    data_list = []
+    csv_files = glob.glob('data/codes_data/code_*.csv')
+    print(csv_files)
+    for file in csv_files:
+        year = int(file.split('code_')[1].split('.')[0])
+        df = pd.read_csv(file)
+        df['year'] = year
+        data_list.append(df)
+    full_data = pd.concat(data_list, ignore_index=True)
+    return full_data
+
+# Step 2: Precompute trajectories
+def precompute_trajectories(full_data):
+    # Group data by 'code'
+    grouped = full_data.groupby('code')
+    smooth_data = []
+
+    for code, group in grouped:
+        group = group.sort_values('year')
+        if len(group) >= 2:
+            years = group['year']
+            x = group['x']
+            y = group['y']
+
+            # Create interpolation functions
+            interp_years = np.arange(years.min(), years.max() + 1)
+            f_x = interp1d(years, x, kind='linear', fill_value='extrapolate')
+            f_y = interp1d(years, y, kind='linear', fill_value='extrapolate')
+
+            # Compute smooth trajectories
+            x_smooth = f_x(interp_years)
+            y_smooth = f_y(interp_years)
+
+            code_smooth_df = pd.DataFrame({
+                'year': interp_years,
+                'x_smooth': x_smooth,
+                'y_smooth': y_smooth,
+                'code': code,
+                'name': group['name'].iloc[0]
+            })
+
+            smooth_data.append(code_smooth_df)
+
+    if smooth_data:
+        traj_df = pd.concat(smooth_data, ignore_index=True)
+        return traj_df
+    else:
+        return pd.DataFrame()
+
+# Step 3: Save precomputed trajectories
+if __name__ == '__main__':
+    full_data = load_data()
+    trajectory_data = precompute_trajectories(full_data)
+    # Save to Parquet format for efficient storage and quick loading
+    trajectory_data.to_parquet('data/precomputed_trajectories.parquet', index=False)

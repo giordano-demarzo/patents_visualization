@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -12,7 +13,7 @@ import pandas as pd
 import numpy as np
 import sqlite3
 from dash import dcc, html, Input, Output, State, callback, callback_context
-import plotly.graph_objs as go
+import plotly.express as px
 import dash
 import dash_bootstrap_components as dbc  # For modal components
 
@@ -47,12 +48,12 @@ def get_data_bounds():
 X_MIN, X_MAX, Y_MIN, Y_MAX = get_data_bounds()
 
 # Helper functions
-def get_data_from_db(xmin, xmax, ymin, ymax, year_range, exclude_ids=[], limit=50000):
+def get_data_from_db(xmin, xmax, ymin, ymax, year_range, exclude_ids=[], limit=200):
     conn = get_db_connection()
     placeholders = ','.join(['?'] * len(exclude_ids))
     params = [xmin, xmax, ymin, ymax, year_range[0], year_range[1]]
     query = """
-        SELECT rowid AS id, x, y, title, year FROM patents
+        SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
         WHERE x BETWEEN ? AND ?
         AND y BETWEEN ? AND ?
         AND year BETWEEN ? AND ?
@@ -61,6 +62,7 @@ def get_data_from_db(xmin, xmax, ymin, ymax, year_range, exclude_ids=[], limit=5
         query += f" AND rowid NOT IN ({placeholders})"
         params.extend(exclude_ids)
     query += """
+        ORDER BY RANDOM()
         LIMIT ?
     """
     params.append(limit)
@@ -137,7 +139,7 @@ layout = html.Div([
                 min=2006,
                 max=2010,
                 value=[2006, 2010],
-                marks={str(year): {'label': str(year), 'style': {'color': 'white'}} for year in range(2006, 2011)},
+                marks={str(year): {'label': str(year), 'style': {'color': 'white'}} for year in range(2006, 2010, 5)},
                 tooltip={"placement": "left", "always_visible": True},
                 vertical=True,
                 verticalHeight=400
@@ -167,6 +169,9 @@ layout = html.Div([
 
     # Store components
     dcc.Store(id='patents-searched-patent-coords', data=None),
+    dcc.Store(id='patents-graph-data', data=None),
+    dcc.Store(id='patents-prev-viewport', data=None),
+    dcc.Store(id='patents-previous-searched-id', data=None),
     dcc.Store(id='patents-selected-id', data=None),
 
     # Modal component for displaying patent details
@@ -204,80 +209,263 @@ layout = html.Div([
 # --- Callbacks ---
 @callback(
     Output('patents-graph', 'figure'),
+    Output('patents-graph-data', 'data'),
+    Output('patents-prev-viewport', 'data'),
     Output('patents-selected-id', 'data'),  # Output for selected patent ID
+    Input('patents-graph', 'relayoutData'),
     Input('patents-year-slider', 'value'),
     Input('patents-searched-patent-coords', 'data'),
     Input('patents-graph', 'clickData'),
-    Input('patents-graph', 'relayoutData'),
-    State('patents-selected-id', 'data'),
-    prevent_initial_call=True
+    State('patents-graph', 'figure'),
+    State('patents-graph-data', 'data'),
+    State('patents-prev-viewport', 'data'),
+    State('patents-selected-id', 'data')
 )
-def update_graph(year_range, searched_coords, clickData, relayoutData, selected_patent_id):
+def update_graph(relayoutData, year_range, searched_coords, clickData, existing_fig, existing_data, prev_viewport, selected_patent_id):
     ctx = callback_context
 
     # Get the triggered property id
     triggered_prop_id = ctx.triggered[0]['prop_id']
 
+    # Initialize variables
+    xmin, xmax = X_MIN, X_MAX
+    ymin, ymax = Y_MIN, Y_MAX
+
     # Handle selection and reset appropriate variables
     if triggered_prop_id == 'patents-graph.clickData':
         if clickData and 'points' in clickData and len(clickData['points']) > 0:
             # User clicked on a point
-            selected_patent_id = clickData['points'][0]['customdata']
+            selected_patent_id = clickData['points'][0]['customdata'][0]
+            # Reset searched patent
+            searched_coords = None
         else:
             # Clicked on empty space
             selected_patent_id = None
+            searched_coords = None  # Reset both
     elif triggered_prop_id == 'patents-searched-patent-coords.data':
         if searched_coords:
             # New search occurred
             selected_patent_id = searched_coords['id']  # Simulate a click on the searched patent
+            # Adjust viewport to center on the searched patent
+            x = searched_coords['x']
+            y = searched_coords['y']
+            delta_x = (X_MAX - X_MIN) / 10  # Adjust delta as needed
+            delta_y = (Y_MAX - Y_MIN) / 10  # Adjust delta as needed
+            xmin = max(x - delta_x, X_MIN)
+            xmax = min(x + delta_x, X_MAX)
+            ymin = max(y - delta_y, Y_MIN)
+            ymax = min(y + delta_y, Y_MAX)
         else:
             # Searched coords is None (search input was cleared)
             selected_patent_id = None
-
-    # Determine current viewport bounds
-    if relayoutData and ('xaxis.range[0]' in relayoutData):
-        xmin = relayoutData['xaxis.range[0]']
-        xmax = relayoutData['xaxis.range[1]']
-        ymin = relayoutData['yaxis.range[0]']
-        ymax = relayoutData['yaxis.range[1]']
+            # Reset viewport to previous or default
+            if relayoutData and ('xaxis.range[0]' in relayoutData):
+                xmin = relayoutData['xaxis.range[0]']
+                xmax = relayoutData['xaxis.range[1]']
+                ymin = relayoutData['yaxis.range[0]']
+                ymax = relayoutData['yaxis.range[1]']
+            elif prev_viewport:
+                xmin = prev_viewport.get('xmin', X_MIN)
+                xmax = prev_viewport.get('xmax', X_MAX)
+                ymin = prev_viewport.get('ymin', Y_MIN)
+                ymax = prev_viewport.get('ymax', Y_MAX)
+            else:
+                xmin, xmax = X_MIN, X_MAX
+                ymin, ymax = Y_MIN, Y_MAX
     else:
+        # For other triggers (e.g., panning, zooming), get viewport from relayoutData or previous viewport
+        if relayoutData and ('xaxis.range[0]' in relayoutData):
+            xmin = relayoutData['xaxis.range[0]']
+            xmax = relayoutData['xaxis.range[1]']
+            ymin = relayoutData['yaxis.range[0]']
+            ymax = relayoutData['yaxis.range[1]']
+        elif prev_viewport:
+            xmin = prev_viewport.get('xmin', X_MIN)
+            xmax = prev_viewport.get('xmax', X_MAX)
+            ymin = prev_viewport.get('ymin', Y_MIN)
+            ymax = prev_viewport.get('ymax', Y_MAX)
+        else:
+            xmin, xmax = X_MIN, X_MAX
+            ymin, ymax = Y_MIN, Y_MAX
+
+    # Adjust viewport bounds to stay within data limits and prevent zooming out beyond initial view
+    x_range = xmax - xmin
+    y_range = ymax - ymin
+    full_x_range = X_MAX - X_MIN
+    full_y_range = Y_MAX - Y_MIN
+
+    # Prevent zooming out beyond initial view
+    if x_range > full_x_range:
         xmin, xmax = X_MIN, X_MAX
+    if y_range > full_y_range:
         ymin, ymax = Y_MIN, Y_MAX
 
-    # Fetch data based on viewport and year range
-    df = get_data_from_db(xmin, xmax, ymin, ymax, year_range, limit=50000)
+    # Prevent panning beyond data boundaries
+    xmin = max(xmin, X_MIN)
+    xmax = min(xmax, X_MAX)
+    ymin = max(ymin, Y_MIN)
+    ymax = min(ymax, Y_MAX)
 
-    # Set 'is_selected' flag for the selected patent
-    if selected_patent_id is not None:
-        df['is_selected'] = df['id'] == selected_patent_id
+    # Detect zooming, panning, and searching
+    zoomed_out = False
+    zoomed_in = False
+    panned = False
+    year_slider_changed = False
+    search_triggered = False
+
+    if prev_viewport is not None and relayoutData:
+        prev_xmin, prev_xmax = prev_viewport['xmin'], prev_viewport['xmax']
+        prev_ymin, prev_ymax = prev_viewport['ymin'], prev_viewport['ymax']
+        prev_area = (prev_xmax - prev_xmin) * (prev_ymax - prev_ymin)
+        current_area = (xmax - xmin) * (ymax - ymin)
+        if current_area > prev_area:
+            zoomed_out = True
+        elif current_area < prev_area:
+            zoomed_in = True
+        elif (xmin != prev_xmin) or (xmax != prev_xmax) or (ymin != prev_ymin) or (ymax != prev_ymax):
+            panned = True
+
+    if triggered_prop_id == 'patents-year-slider.value':
+        year_slider_changed = True
+
+    if triggered_prop_id == 'patents-searched-patent-coords.data' and searched_coords:
+        search_triggered = True
+
+    # Number of points to limit
+    max_total_points = 30000  # Adjust as needed
+
+    # Existing data handling based on interaction
+    if zoomed_out or year_slider_changed or search_triggered:
+        existing_df = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year'])
+        existing_ids = []
+
+        # Fetch the selected patent if it exists
+        if selected_patent_id is not None:
+            conn = get_db_connection()
+            query = """
+                SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
+                WHERE rowid = ? LIMIT 1;
+            """
+            df_selected = pd.read_sql_query(query, conn, params=(selected_patent_id,))
+            conn.close()
+            existing_df = pd.concat([existing_df, df_selected], ignore_index=True, sort=False)
+            existing_ids.append(selected_patent_id)
+
+        # Fetch new random data within the current viewport
+        points_to_fetch = max_total_points - len(existing_ids)
+        if points_to_fetch > 0:
+            new_data = get_data_from_db(
+                xmin, xmax, ymin, ymax, year_range, exclude_ids=existing_ids, limit=points_to_fetch
+            )
+            combined_data = pd.concat([existing_df, new_data], ignore_index=True, sort=False).drop_duplicates(subset='id')
+        else:
+            combined_data = existing_df.copy()
+
+    elif zoomed_in or panned:
+        if existing_data:
+            existing_df = pd.DataFrame(existing_data)
+            # Keep existing points within the new viewport
+            existing_df = existing_df[
+                (existing_df['x'] >= xmin) & (existing_df['x'] <= xmax) &
+                (existing_df['y'] >= ymin) & (existing_df['y'] <= ymax)
+            ]
+            existing_ids = existing_df['id'].tolist()
+        else:
+            existing_df = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year'])
+            existing_ids = []
+
+        # Fetch the selected patent if it's not in existing data
+        if selected_patent_id is not None and selected_patent_id not in existing_ids:
+            conn = get_db_connection()
+            query = """
+                SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
+                WHERE rowid = ? LIMIT 1;
+            """
+            df_selected = pd.read_sql_query(query, conn, params=(selected_patent_id,))
+            conn.close()
+            existing_df = pd.concat([existing_df, df_selected], ignore_index=True, sort=False)
+            existing_ids.append(selected_patent_id)
+
+        # Calculate number of points to add
+        points_to_add = max_total_points - len(existing_df)
+        if points_to_add > 0:
+            new_data = get_data_from_db(
+                xmin, xmax, ymin, ymax, year_range, exclude_ids=existing_ids, limit=points_to_add
+            )
+            combined_data = pd.concat([existing_df, new_data], ignore_index=True, sort=False).drop_duplicates(subset='id')
+        else:
+            combined_data = existing_df.copy()
+
     else:
-        df['is_selected'] = False
+        if existing_data:
+            combined_data = pd.DataFrame(existing_data)
+        else:
+            combined_data = get_data_from_db(
+                xmin, xmax, ymin, ymax, year_range, limit=max_total_points
+            )
+
+        # Fetch the selected patent if it's not in combined_data
+        if selected_patent_id is not None and selected_patent_id not in combined_data['id'].values:
+            conn = get_db_connection()
+            query = """
+                SELECT rowid AS id, x, y, title, abstract, codes, year FROM patents
+                WHERE rowid = ? LIMIT 1;
+            """
+            df_selected = pd.read_sql_query(query, conn, params=(selected_patent_id,))
+            conn.close()
+            combined_data = pd.concat([combined_data, df_selected], ignore_index=True, sort=False).drop_duplicates(subset='id')
+
+    # Ensure 'id' column is of integer type
+    if not combined_data.empty:
+        combined_data['id'] = combined_data['id'].astype(int)
+
+        # Set 'is_selected' flag for the selected patent
+        combined_data['is_selected'] = combined_data['id'] == selected_patent_id
+    else:
+        # Handle empty combined_data
+        combined_data = pd.DataFrame(columns=['id', 'x', 'y', 'title', 'abstract', 'codes', 'year', 'is_selected'])
 
     # Create the figure
-    if not df.empty:
-        df['year'] = pd.to_numeric(df['year'], errors='coerce')
+    if not combined_data.empty:
+        combined_data['year'] = pd.to_numeric(combined_data['year'], errors='coerce')
 
-        # Use Scattergl for better performance
-        fig = go.Figure()
+        fig = px.scatter(
+            combined_data,
+            x='x',
+            y='y',
+            color='year',  # Color points based on the 'year' column
+            custom_data=['id'],
+            hover_name='title',  # Use 'hover_name' to display only the title
+            hover_data={'x': False, 'y': False, 'year': False, 'codes': False},
+            color_continuous_scale='Viridis',  # Use the 'Viridis' color scale
+            range_color=[2006, 2010],  # Adjust the range as needed
+            labels={'x': '', 'y': '', 'color': 'Year'},
+        )
+
+        # Force the use of the coloraxis and treat 'year' as continuous
+        fig.update_traces(marker=dict(coloraxis='coloraxis'))
 
         # Adjust marker sizes to highlight the selected patent
         sizes = np.where(
-            df['is_selected'],
+            combined_data['is_selected'],
             20,  # Larger size for selected patent
-            4    # Default size for other patents
+            6    # Default size for other patents
         )
+        fig.update_traces(marker=dict(size=sizes))
 
-        # Create scatter plot
-        fig.add_trace(go.Scattergl(
-            x=df['x'],
-            y=df['y'],
-            mode='markers',
-            marker=dict(
-                size=sizes,
-                color=df['year'],
-                colorscale='hot',
-                cmin=2006,
+        # Update figure layout
+        fig.update_layout(
+            clickmode='event',
+            dragmode='pan',
+            uirevision='constant',
+            plot_bgcolor='#2c2c2c',
+            paper_bgcolor='#2c2c2c',
+            font_color='white',
+            title_font_color='white',
+            coloraxis=dict(
+                cmin=2005,
                 cmax=2010,
+                colorscale='hot',
                 colorbar=dict(
                     title="Year",
                     ticks="outside",
@@ -290,20 +478,6 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
                     x=-0.10,
                 ),
             ),
-            customdata=df['id'],
-            hovertext=df['title'],
-            hoverinfo='text',
-        ))
-
-        # Update figure layout
-        fig.update_layout(
-            clickmode='event',
-            dragmode='pan',
-            uirevision='constant',
-            plot_bgcolor='#2c2c2c',
-            paper_bgcolor='#2c2c2c',
-            font_color='white',
-            title_font_color='white',
             xaxis=dict(
                 range=[xmin, xmax],
                 constrain='range',
@@ -331,43 +505,16 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
                 b=50
             )
         )
-
-        # If a search occurred, adjust the viewport to center on the searched patent
-        if triggered_prop_id == 'patents-searched-patent-coords.data' and searched_coords:
-            x = searched_coords['x']
-            y = searched_coords['y']
-            delta_x = (X_MAX - X_MIN) / 10  # Adjust delta as needed
-            delta_y = (Y_MAX - Y_MIN) / 10  # Adjust delta as needed
-            xmin = max(x - delta_x, X_MIN)
-            xmax = min(x + delta_x, X_MAX)
-            ymin = max(y - delta_y, Y_MIN)
-            ymax = min(y + delta_y, Y_MAX)
-            fig.update_layout(
-                xaxis=dict(range=[xmin, xmax]),
-                yaxis=dict(range=[ymin, ymax]),
-            )
-
     else:
-        fig = go.Figure()
-        fig.update_layout(
-            plot_bgcolor='#2c2c2c',
-            paper_bgcolor='#2c2c2c',
-            font_color='white',
-            xaxis=dict(
-                showgrid=False,
-                zeroline=False,
-                showticklabels=False,
-                showline=False,
-            ),
-            yaxis=dict(
-                showgrid=False,
-                zeroline=False,
-                showticklabels=False,
-                showline=False,
-            ),
-        )
+        fig = px.scatter()  # Return an empty figure if no data
 
-    return fig, selected_patent_id
+    # Prepare data to store in 'graph-data' store
+    data_to_store = combined_data.to_dict('records')
+
+    # Store the current viewport bounds
+    viewport_data = {'xmin': xmin, 'xmax': xmax, 'ymin': ymin, 'ymax': ymax}
+
+    return fig, data_to_store, viewport_data, selected_patent_id
 
 # Search functionality
 @callback(
@@ -411,7 +558,7 @@ def display_patent_details(clickData, n_clicks_close, is_open_state):
     if trigger_id == 'patents-graph' and clickData:
         # Get the 'id' from customdata
         point = clickData['points'][0]
-        patent_id = point['customdata']
+        patent_id = point['customdata'][0]
         details = get_patent_details_by_id(patent_id)
         if details:
             title = details['title']

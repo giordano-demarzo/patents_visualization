@@ -11,7 +11,7 @@ import plotly.graph_objs as go
 # Load data from CSV files
 def load_data():
     data_dict = {}
-    csv_files = glob.glob('data/generated_files/code_*.csv')
+    csv_files = glob.glob('data/codes_data/code_*.csv')
     print(f"Found CSV files: {csv_files}")  # For debugging
     for file in csv_files:
         year = int(file.split('code_')[1].split('.')[0])
@@ -226,6 +226,27 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year)
     print(f"update_graph called with {len(data)} data points.")
     df = pd.DataFrame(data)
 
+    # Map first letters to colors
+    if not df.empty:
+        df['first_letter'] = df['code'].str[0]
+
+        # Define colors for letters A to H
+        letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+        colors = ['#e6194b',  # Red
+                  '#3cb44b',  # Green
+                  '#ffe119',  # Yellow
+                  '#4363d8',  # Blue
+                  '#f58231',  # Orange
+                  '#911eb4',  # Purple
+                  '#42d4f4',  # Cyan
+                  '#f032e6']  # Magenta
+
+        color_map = dict(zip(letters, colors))
+        # Assign colors based on the first letter
+        df['color'] = df['first_letter'].map(color_map)
+        # For any letters outside A-H, assign a default color
+        df['color'].fillna('#ffffff', inplace=True)  # White for unknown letters
+
     # Create the base figure using scattergl for better performance
     fig = go.Figure()
     if not df.empty:
@@ -234,7 +255,10 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year)
             y=df['y'],
             mode='markers',
             name='',  # Set empty name to avoid "trace 0"
-            marker=dict(color='yellow', size=6),
+            marker=dict(
+                color=df['color'],
+                size=6,
+            ),
             customdata=df['code'],
             hovertemplate='%{customdata}: %{text}',
             text=df['name'],
@@ -266,7 +290,7 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year)
             y=y_traj,
             mode='lines',
             name='',  # Set empty name to avoid "trace 1"
-            line=dict(color='blue'),
+            line=dict(color='white'),  # Set trajectories to white
             hoverinfo='skip',  # Disable hoverinfo for the trajectories
             showlegend=False,  # Do not show in legend
         ))
@@ -283,7 +307,7 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year)
             y=[y],
             mode='markers',
             name='',  # Set empty name to avoid "trace 2"
-            marker=dict(size=15, color='red', symbol='circle'),
+            marker=dict(size=15, color='white', symbol='circle'),  # White color for visibility
             hovertext=code + ': ' + name,
             hoverinfo='text',
             showlegend=False,  # Do not show in legend
