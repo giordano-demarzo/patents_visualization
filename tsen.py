@@ -10,23 +10,30 @@ import pandas as pd
 import os
 
 # Define the base folder containing the data partitions
-base_folder = 'data_2006_2010_embeddings_abstractclaims_combined_llama38B.parquet'
+base_folder = 'data/data_gt2018_embeddings_llama38B.parquet'
 
 # Initialize an empty list to store dataframes
 dataframes = []
 
 # Loop through each partition folder and read the parquet file
-for partition in range(1):
+for partition in range(17):
+    print(partition)
     partition_folder = os.path.join(base_folder, f'partition={partition}')
     parquet_file = os.path.join(partition_folder, os.listdir(partition_folder)[0])  # Assumes there's only one file per partition
     df = pd.read_parquet(parquet_file)
-    dataframes.append(df)
+    
+    # Randomly sample 3000 rows from the dataframe
+    sampled_df = df.sample(n=3000, random_state=42)  # Set random_state for reproducibility
+    
+    # Append the sampled dataframe to the list
+    dataframes.append(sampled_df)
 
-# Concatenate all the dataframes into a single dataframe
+# Concatenate all the sampled dataframes into a single dataframe
 merged_df = pd.concat(dataframes, ignore_index=True)
 
 # Display or save the merged dataframe
 print(merged_df.head())  # Show the first few rows of the merged dataframe
+
 
 #%%TSNE 
 
@@ -34,16 +41,21 @@ import numpy as np
 import pandas as pd
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
+import umap
 
-# Assuming you have the merged dataframe with the 'embedding' column
-# merged_df = pd.read_parquet('merged_data_2006_2010_embeddings.parquet')
+
 
 # Convert the 'embedding' column to a NumPy array
 embeddings = np.array(merged_df['embedding'].to_list())
 
-# Apply t-SNE to reduce the embeddings to 2 dimensions
-tsne = TSNE(n_components=2, random_state=42)
-embeddings_2d = tsne.fit_transform(embeddings)
+
+# # Apply t-SNE to reduce the embeddings to 2 dimensions
+# tsne = TSNE(n_components=2, random_state=42)
+# embeddings_2d = tsne.fit_transform(embeddings)
+
+# Perform UMAP on the embeddings
+umap_model = umap.UMAP(n_components=2, n_jobs=4, n_neighbors=100)
+embeddings_2d = umap_model.fit_transform(embeddings)
 
 # Plot the 2D t-SNE embeddings
 plt.figure(figsize=(10, 8))
@@ -84,47 +96,62 @@ print("Data successfully exported to patents.db")
 import pandas as pd
 import pickle
 import numpy as np
+import os
 from sklearn.manifold import TSNE
 import umap
 
+# Load the 8 dictionaries and merge them
+dict_path = 'data/IPC_DESCR_DEF_AGGREGATE'
+merged_dict = {}
 
-# Load the .pkl file
-with open('data/average_embeddings_2019_2023_aggregated.pkl', 'rb') as f:
+# Iterate over the files in the folder
+for file in os.listdir(dict_path):
+    if file.endswith('.pkl'):
+        with open(os.path.join(dict_path, file), 'rb') as f:
+            temp_dict = pickle.load(f)
+            merged_dict.update(temp_dict)
+
+# Load the main .pkl file
+with open('data/average_embeddings_2019_2023_aggregated_num_patents.pkl', 'rb') as f:
     data = pickle.load(f)
 
 # Create a DataFrame
 df = pd.DataFrame(data)
 
+# Filter rows based on 'number of patents' column
+df = df[df['number of patents'] > 7]
+
 # Convert the list of embeddings into a NumPy array
 embeddings = np.array(df['embedding'].tolist())
 
-# # Perform t-SNE on the embeddings
-# tsne = TSNE(n_components=2, random_state=42)
-# tsne_results = tsne.fit_transform(embeddings)
-
-# # Add the t-SNE results (x, y) to the DataFrame
-# df['x'] = tsne_results[:, 0]
-# df['y'] = tsne_results[:, 1]
-
 # Perform UMAP on the embeddings
-umap_model = umap.UMAP(n_components=2, n_jobs=4)
+umap_model = umap.UMAP(n_components=2, n_jobs=4, n_neighbors=100)
 umap_results = umap_model.fit_transform(embeddings)
 
 # Add the UMAP results (x, y) to the DataFrame
 df['x'] = umap_results[:, 0]
 df['y'] = umap_results[:, 1]
 
-# Placeholder for the 'name' column
-df['name'] = 'Placeholder'
+# Map the 'tech_code' column to the 'name' column using the merged dictionary
+df['name_full'] = df['tech_code'].map(merged_dict)
+df['name'] = df['tech_code'].map(merged_dict)
+
+# Function to truncate names longer than 50 characters and add '...'
+def truncate_name(name, max_length=50):
+    if isinstance(name, str) and len(name) > max_length:
+        return name[:max_length-3] + '...'  # Subtract 3 to account for the length of '...'
+    return name
+
+# Apply the truncation function to the 'name' column
+df['name'] = df['name'].apply(truncate_name)
 
 # Create a CSV file for each year
 for year in df['year'].unique():
-    df_year = df[df['year'] == year][['x', 'y', 'tech_code', 'name']].copy()
-    df_year.columns = ['x', 'y', 'code', 'name']  # Renaming columns to match required output
+    df_year = df[df['year'] == year][['x', 'y', 'tech_code', 'name', 'name_full']].copy()
+    df_year.columns = ['x', 'y', 'code', 'name', 'name_full']  # Renaming columns to match required output
     df_year.to_csv(f'data/codes_data/code_{year}.csv', index=False)
 
-print("t-SNE and file creation complete.")
-
+print("UMAP and file creation complete.")
 #%%COMPUTE TRAJECTORIES FOR CODES 
 
 import pandas as pd

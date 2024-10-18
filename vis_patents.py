@@ -105,7 +105,7 @@ layout = html.Div([
     
     html.Div(
     [
-        html.H1("The Patent Space", style={'textAlign': 'center', 'color': 'white'}),
+        html.H1("Patent Space", style={'textAlign': 'center', 'color': 'white'}),
         # Home button
         html.Div(
             dcc.Link('Home', href='/', className='home-button', style={'color': 'white'}),
@@ -134,10 +134,10 @@ layout = html.Div([
             html.Label("", style={'color': 'white', 'textAlign': 'center'}),
             dcc.RangeSlider(
                 id='patents-year-slider',
-                min=2006,
-                max=2010,
-                value=[2006, 2010],
-                marks={str(year): {'label': str(year), 'style': {'color': 'white'}} for year in range(2006, 2011)},
+                min=2019,
+                max=2023,
+                value=[2019, 2023],
+                marks={str(year): {'label': str(year), 'style': {'color': 'white'}} for year in range(2019, 2023)},
                 tooltip={"placement": "left", "always_visible": True},
                 vertical=True,
                 verticalHeight=400
@@ -264,7 +264,7 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
         sizes = np.where(
             df['is_selected'],
             20,  # Larger size for selected patent
-            4    # Default size for other patents
+            6    # Default size for other patents
         )
 
         # Create scatter plot
@@ -275,9 +275,10 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
             marker=dict(
                 size=sizes,
                 color=df['year'],
-                colorscale='hot',
-                cmin=2006,
-                cmax=2010,
+                colorscale='viridis',
+                cmin=2019,
+                cmax=2023,
+                line=dict(width=0),
                 colorbar=dict(
                     title="Year",
                     ticks="outside",

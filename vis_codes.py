@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 import glob
+import pickle
 from dash import dcc, html, Input, Output, State, callback, ctx
 import plotly.graph_objs as go
 
@@ -12,13 +13,11 @@ import plotly.graph_objs as go
 def load_data():
     data_dict = {}
     csv_files = glob.glob('data/codes_data/code_*.csv')
-    print(f"Found CSV files: {csv_files}")  # For debugging
     for file in csv_files:
         year = int(file.split('code_')[1].split('.')[0])
         df = pd.read_csv(file)
         df['year'] = year  # Add a 'year' column
         data_dict[year] = df
-    print(f"Data loaded for years: {list(data_dict.keys())}")  # For debugging
     return data_dict
 
 # Load all data at startup
@@ -26,6 +25,10 @@ DATA_DICT = load_data()
 
 # Load precomputed trajectories
 TRAJECTORY_DATA = pd.read_parquet('data/precomputed_trajectories.parquet')
+
+# Load the similar codes data
+with open('data/top_10_codes_2019_2023_llama8b_abstracts.pkl', 'rb') as f:
+    SIMILAR_CODES_DICT = pickle.load(f)
 
 # Get data boundaries
 def get_data_bounds():
@@ -53,6 +56,45 @@ def get_slider_marks(years, step):
 
 SLIDER_MARKS = get_slider_marks(AVAILABLE_YEARS, step=5)  # Adjust 'step' as needed
 
+# --- Define Colors and Categories ---
+
+# Map first letters to colors and categories
+letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+colors = ['#e6194b',  # Red
+          '#3cb44b',  # Green
+          # '#ffe119',  # Yellow
+          'white',
+          '#4363d8',  # Blue
+          '#f58231',  # Orange
+          '#911eb4',  # Purple
+          '#42d4f4',  # Cyan
+          '#f032e6']  # Magenta
+
+categories = {
+    'A': 'HUMAN NECESSITIES',
+    'B': 'PERFORMING OPERATIONS; TRANSPORTING',
+    'C': 'CHEMISTRY; METALLURGY',
+    'D': 'TEXTILES; PAPER',
+    'E': 'FIXED CONSTRUCTIONS',
+    'F': 'MECHANICAL ENGINEERING; LIGHTING; HEATING; WEAPONS; BLASTING',
+    'G': 'PHYSICS',
+    'H': 'ELECTRICITY'
+}
+
+color_map = dict(zip(letters, colors))
+
+# Create legend items
+legend_items = []
+for letter in letters:
+    category_name = categories[letter]
+    color = color_map[letter]
+    legend_items.append(
+        html.Div([
+            html.Span('■ ', style={'color': color, 'fontSize': '12px'}),
+            html.Span(f"{letter}: {category_name}", style={'fontWeight': 'bold', 'fontSize': '12px'})
+        ], style={'marginBottom': '1px'})
+    )
+
 # --- Dash App Layout ---
 
 layout = html.Div([
@@ -69,20 +111,58 @@ layout = html.Div([
     style={'backgroundColor': '#2c2c2c', 'position': 'relative'}
     ),
 
-
-    # Graph
-    dcc.Graph(
-        id='codes-graph',
-        config={'displayModeBar': True, 'scrollZoom': True},
-        style={
-            'height': '75vh',
-            'width': '70%',
-            'display': 'inline-block',
-            'padding': '60px',
-            'backgroundColor': '#2c2c2c'  # Same dark grey background for the graph area
-        },
-        clear_on_unhover=True,  # Clear hover data when not hovering
-    ),
+    # Main content area with graph, info box, and legend
+    html.Div([
+        # Graph
+        html.Div(
+            dcc.Graph(
+                id='codes-graph',
+                config={'displayModeBar': False, 'scrollZoom': True},
+                style={
+                    'height': '65vh',
+                    'width': '60%',
+                    'backgroundColor': '#2c2c2c'  # Same dark grey background for the graph area
+                },
+                clear_on_unhover=True,  # Clear hover data when not hovering
+            ),
+            style={'flex': '1', 'position': 'relative'}  # Allows the graph to take up remaining space
+        ),
+        # Info Box
+        html.Div(
+            id='codes-info-box',
+            style={
+                'position': 'absolute',
+                'top': '20px',
+                'right': '100px',
+                'backgroundColor': '#2c2c2c',
+                'color': 'white',
+                'padding': '10px',
+                'border': '1px solid #555',
+                'width': '300px',   # Set fixed width
+                'height': '250px',  # Set fixed height
+                'overflowY': 'auto',
+            }
+        ),
+        # Legend
+        html.Div(
+            legend_items,
+            id='codes-legend',
+            style={
+                'position': 'absolute',
+                'bottom': '20px',
+                'right': '20px',
+                'backgroundColor': '#2c2c2c',
+                'color': 'white',
+                'fontSize': '10px',
+            },
+        ),
+    ], style={
+        'display': 'flex',
+        'backgroundColor': '#2c2c2c',
+        'position': 'relative',  # Necessary for absolute positioning of the legend and info box
+        'height': '75vh',
+        'width': '100%',
+    }),
 
     # Controls
     html.Div([
@@ -125,6 +205,7 @@ layout = html.Div([
     dcc.Store(id='codes-search-data'),
     dcc.Store(id='codes-selected-codes', data=[]),  # Store for selected codes
     dcc.Store(id='codes-click-counter', data=0),  # Store to count clicks
+    dcc.Store(id='clicked-code', data=None),  # Store for the clicked code
 ], style={'height': '100vh', 'backgroundColor': '#2c2c2c', 'margin': '0', 'padding': '0'})  # Set the overall background color and remove margins
 
 # --- Callbacks ---
@@ -213,6 +294,18 @@ def search_code(n_clicks, search_value, data):
             return matched_code.iloc[0].to_dict()
     return None
 
+# Callback to store the clicked code
+@callback(
+    Output('clicked-code', 'data'),
+    Input('codes-graph', 'clickData'),
+)
+def update_clicked_code(clickData):
+    if clickData and 'points' in clickData and len(clickData['points']) > 0:
+        clicked_code = clickData['points'][0]['customdata']
+        return clicked_code
+    else:
+        return None
+
 # Update the graph based on filtered data and selected codes
 @callback(
     Output('codes-graph', 'figure'),
@@ -221,50 +314,172 @@ def search_code(n_clicks, search_value, data):
     Input('codes-selected-codes', 'data'),
     Input('codes-graph', 'relayoutData'),
     Input('codes-year-slider', 'value'),
+    Input('clicked-code', 'data'),  # Add clicked code as input
 )
-def update_graph(data, search_data, selected_codes, relayoutData, selected_year):
-    print(f"update_graph called with {len(data)} data points.")
+def update_graph(data, search_data, selected_codes, relayoutData, selected_year, clicked_code):
     df = pd.DataFrame(data)
 
-    # Map first letters to colors
+    # Map first letters to colors and categories
     if not df.empty:
         df['first_letter'] = df['code'].str[0]
 
-        # Define colors for letters A to H
-        letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
-        colors = ['#e6194b',  # Red
-                  '#3cb44b',  # Green
-                  '#ffe119',  # Yellow
-                  '#4363d8',  # Blue
-                  '#f58231',  # Orange
-                  '#911eb4',  # Purple
-                  '#42d4f4',  # Cyan
-                  '#f032e6']  # Magenta
-
-        color_map = dict(zip(letters, colors))
         # Assign colors based on the first letter
         df['color'] = df['first_letter'].map(color_map)
         # For any letters outside A-H, assign a default color
         df['color'].fillna('#ffffff', inplace=True)  # White for unknown letters
 
-    # Create the base figure using scattergl for better performance
+        # Assign categories
+        df['category'] = df['first_letter'].map(categories)
+        df['category'].fillna('OTHER', inplace=True)
+
+    # Create the base figure using Scatter
     fig = go.Figure()
     if not df.empty:
-        fig.add_trace(go.Scattergl(
+        fig.add_trace(go.Scatter(
             x=df['x'],
             y=df['y'],
             mode='markers',
-            name='',  # Set empty name to avoid "trace 0"
             marker=dict(
                 color=df['color'],
                 size=6,
             ),
             customdata=df['code'],
-            hovertemplate='%{customdata}: %{text}',
+            hovertemplate='%{customdata}: %{text}<extra></extra>',
             text=df['name'],
             hoverinfo='text',
+            showlegend=False,  # Do not show legend inside the plot
+        ))
+
+    # Highlight the clicked code and similar codes
+    if clicked_code:
+        # Get the similar codes
+        similar_codes_with_scores = SIMILAR_CODES_DICT.get(clicked_code, [])
+        similar_codes = [code for code, _ in similar_codes_with_scores]
+
+        # DataFrame for the clicked code
+        clicked_df = df[df['code'] == clicked_code]
+
+        # DataFrame for similar codes
+        similar_df = df[df['code'].isin(similar_codes)]
+
+        # Add trace for similar codes
+        if not similar_df.empty:
+            fig.add_trace(go.Scatter(
+                x=similar_df['x'],
+                y=similar_df['y'],
+                mode='markers',
+                marker=dict(
+                    color='#ffe119',  # Hex code for yellow
+                    size=10,
+                    symbol='circle',
+                    line=dict(color='white', width=1)
+                ),
+                customdata=similar_df['code'],
+                hovertemplate='%{customdata}: %{text}<extra></extra>',
+                text=similar_df['name'],
+                hoverinfo='text',
+                hoverlabel=dict(bgcolor='#ffe119'),  # Set hover box background color
+                showlegend=False,
+            ))
+
+        # Add trace for the clicked code on top
+        if not clicked_df.empty:
+            fig.add_trace(go.Scatter(
+                x=clicked_df['x'],
+                y=clicked_df['y'],
+                mode='markers',
+                marker=dict(
+                    color='#FF0000',  # Hex code for red
+                    size=12,
+                    symbol='circle',
+                    line=dict(color='white', width=2)
+                ),
+                customdata=clicked_df['code'],
+                hovertemplate='%{customdata}: %{text}<extra></extra>',
+                text=clicked_df['name'],
+                hoverinfo='text',
+                hoverlabel=dict(bgcolor='#FF0000'),  # Set hover box background color
+                showlegend=False,
+            ))
+
+        # Center the view on the clicked code
+        if not clicked_df.empty:
+            x_clicked = clicked_df['x'].iloc[0]
+            y_clicked = clicked_df['y'].iloc[0]
+
+            if not similar_df.empty:
+                # Compute the distances from the clicked code to similar codes
+                dx = abs(similar_df['x'] - x_clicked)
+                dy = abs(similar_df['y'] - y_clicked)
+
+                # Get the maximum distances
+                max_dx = dx.max()
+                max_dy = dy.max()
+
+                # Use the larger of these distances to create a symmetric box
+                max_d = max(max_dx, max_dy)
+
+                # Add some padding
+                padding = max_d * 0.1  # 10% padding
+
+                # Ensure that max_d is at least some minimal value to avoid zero range
+                if max_d == 0:
+                    max_d = (X_MAX - X_MIN) * 0.01  # 1% of total range
+                    padding = max_d * 0.1
+
+                # Create symmetric ranges centered around clicked code
+                x_range = [x_clicked - (max_d + padding), x_clicked + (max_d + padding)]
+                y_range = [y_clicked - (max_d + padding), y_clicked + (max_d + padding)]
+            else:
+                # No similar codes found, set a default range
+                x_range = [x_clicked - (X_MAX - X_MIN) / 15, x_clicked + (X_MAX - X_MIN) / 15]
+                y_range = [y_clicked - (Y_MAX - Y_MIN) / 15, y_clicked + (Y_MAX - Y_MIN) / 15]
+
+            # Update the figure without altering the aspect ratio
+            fig.update_layout(
+                xaxis=dict(range=x_range),
+                yaxis=dict(range=y_range),
+            )
+    elif search_data:
+        # Handle search functionality
+        x = search_data['x']
+        y = search_data['y']
+        code = search_data['code']
+        name = search_data['name']
+        # Highlight the searched code
+        fig.add_trace(go.Scatter(
+            x=[x],
+            y=[y],
+            mode='markers',
+            name='',  # Set empty name to avoid extra legend entry
+            marker=dict(size=15, color='white', symbol='circle'),  # White color for visibility
+            hovertext=code + ': ' + name,
+            hoverinfo='text',
+            hoverlabel=dict(bgcolor='white'),  # Set hover box background color
             showlegend=False,  # Do not show in legend
         ))
+        # Update the figure to focus on the searched code
+        fig.update_layout(
+            xaxis=dict(range=[x - (X_MAX - X_MIN) / 15, x + (X_MAX - X_MIN) / 15]),
+            yaxis=dict(range=[y - (Y_MAX - Y_MIN) / 15, y + (Y_MAX - Y_MIN) / 15]),
+        )
+    else:
+        # Preserve zoom and pan if no search or click
+        if relayoutData and 'xaxis.range[0]' in relayoutData:
+            xmin = relayoutData['xaxis.range[0]']
+            xmax = relayoutData['xaxis.range[1]']
+            ymin = relayoutData['yaxis.range[0]']
+            ymax = relayoutData['yaxis.range[1]']
+            fig.update_layout(
+                xaxis=dict(range=[xmin, xmax]),
+                yaxis=dict(range=[ymin, ymax]),
+            )
+        else:
+            # Set default axis ranges without aspect ratio constraints
+            fig.update_layout(
+                xaxis=dict(range=[X_MIN, X_MAX]),
+                yaxis=dict(range=[Y_MIN, Y_MAX]),
+            )
 
     # Add trajectories for selected codes
     if selected_codes:
@@ -285,55 +500,15 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year)
             x_traj.extend(code_df['x_smooth'].tolist() + [np.nan])  # Add NaN to create a break
             y_traj.extend(code_df['y_smooth'].tolist() + [np.nan])
 
-        fig.add_trace(go.Scattergl(
+        fig.add_trace(go.Scatter(
             x=x_traj,
             y=y_traj,
             mode='lines',
-            name='',  # Set empty name to avoid "trace 1"
+            name='',  # Set empty name to avoid extra legend entry
             line=dict(color='white'),  # Set trajectories to white
             hoverinfo='skip',  # Disable hoverinfo for the trajectories
             showlegend=False,  # Do not show in legend
         ))
-
-    # Handle search functionality
-    if search_data:
-        x = search_data['x']
-        y = search_data['y']
-        code = search_data['code']
-        name = search_data['name']
-        # Highlight the searched code
-        fig.add_trace(go.Scattergl(
-            x=[x],
-            y=[y],
-            mode='markers',
-            name='',  # Set empty name to avoid "trace 2"
-            marker=dict(size=15, color='white', symbol='circle'),  # White color for visibility
-            hovertext=code + ': ' + name,
-            hoverinfo='text',
-            showlegend=False,  # Do not show in legend
-        ))
-        # Update the figure to focus on the searched code
-        fig.update_layout(
-            xaxis=dict(range=[x - 50, x + 50]),
-            yaxis=dict(range=[y - 50, y + 50]),
-        )
-    else:
-        # Preserve zoom and pan if no search
-        if relayoutData and 'xaxis.range[0]' in relayoutData:
-            xmin = relayoutData['xaxis.range[0]']
-            xmax = relayoutData['xaxis.range[1]']
-            ymin = relayoutData['yaxis.range[0]']
-            ymax = relayoutData['yaxis.range[1]']
-            fig.update_layout(
-                xaxis=dict(range=[xmin, xmax]),
-                yaxis=dict(range=[ymin, ymax]),
-            )
-        else:
-            # Set default axis ranges
-            fig.update_layout(
-                xaxis=dict(range=[X_MIN, X_MAX]),
-                yaxis=dict(range=[Y_MIN, Y_MAX]),
-            )
 
     # Update layout
     fig.update_layout(
@@ -343,7 +518,7 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year)
         plot_bgcolor='#2c2c2c',
         paper_bgcolor='#2c2c2c',
         font_color='white',
-        showlegend=False,  # Do not show legend
+        showlegend=False,  # Do not show legend inside the plot
         margin=dict(l=0, r=0, t=0, b=0),  # Remove margins
     )
     # Update axes properties
@@ -361,3 +536,35 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year)
     )
 
     return fig
+
+# Callback to update the info box when a code is clicked
+@callback(
+    Output('codes-info-box', 'children'),
+    Input('codes-graph', 'clickData'),
+    State('codes-filtered-data', 'data'),
+)
+def update_info_box(clickData, filtered_data):
+    if clickData and 'points' in clickData and len(clickData['points']) > 0:
+        clicked_code = clickData['points'][0]['customdata']
+        df = pd.DataFrame(filtered_data)
+        code_info = df[df['code'] == clicked_code]
+        if not code_info.empty:
+            code_info = code_info.iloc[0]
+            full_name = code_info.get('name_full', 'No full name available')
+            similar_codes = SIMILAR_CODES_DICT.get(clicked_code, [])
+
+            # Create the content for the info box
+            content = [
+                html.H4(f"{clicked_code}: {full_name}", style={'marginBottom': '10px', 'fontSize': '15px'}),
+                html.H5('Most Similar Codes:', style={'marginBottom': '2px', 'fontSize': '12px'}),
+                html.Ul([
+                    html.Li(f"{code}: {similarity_score:.4f}", style={'marginBottom': '2px', 'fontSize': '12px'})
+                    for code, similarity_score in similar_codes
+                ])
+            ]
+            return content
+        else:
+            return ''
+    else:
+        # If no code is clicked, return an empty Div
+        return ''
