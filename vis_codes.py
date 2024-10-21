@@ -27,7 +27,11 @@ DATA_DICT = load_data()
 # Load precomputed trajectories
 TRAJECTORY_DATA = pd.read_parquet('data/precomputed_trajectories.parquet')
 
-# Load the similar codes data
+# Load the precomputed similar codes data
+with open('data/precomputed_similar_codes.pkl', 'rb') as f:
+    PRECOMPUTED_SIMILAR_CODES = pickle.load(f)
+
+# Load the original similar codes data for info box
 with open('data/top_10_codes_2019_2023_llama8b_abstracts.pkl', 'rb') as f:
     SIMILAR_CODES_DICT = pickle.load(f)
 
@@ -167,7 +171,7 @@ layout = html.Div([
                 min=AVAILABLE_YEARS[0],
                 max=AVAILABLE_YEARS[-1],
                 value=AVAILABLE_YEARS[-1],
-                marks={year: str(year) for year in AVAILABLE_YEARS},
+                marks=SLIDER_MARKS,
                 step=1
             ),
         ], style={'width': '30%', 'display': 'inline-block', 'verticalAlign': 'middle'}),
@@ -328,10 +332,6 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         # For any letters outside A-H, assign a default color
         df['color'].fillna('#ffffff', inplace=True)  # White for unknown letters
 
-        # Assign categories
-        df['category'] = df['first_letter'].map(categories)
-        df['category'].fillna('OTHER', inplace=True)
-
         # Limit hover text length to improve performance and include code
         df['hover_text'] = df.index + ': ' + df['name'].str.slice(0, 100)  # Limit to 100 characters
     else:
@@ -357,33 +357,14 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
     # Record time after base plot
     base_plot_time = time.time()
 
-    # Highlight the clicked code and similar codes
+    # Highlight the clicked code and similar codes using precomputed data
     if clicked_code:
-        # Get the similar codes
-        similar_codes_with_scores = SIMILAR_CODES_DICT.get(clicked_code, [])
-        similar_codes = [code for code, _ in similar_codes_with_scores]
-
-        # Check if clicked code is in current data
-        if clicked_code in df.index:
-            clicked_df = df.loc[[clicked_code]]
-        else:
-            clicked_df = pd.DataFrame(columns=df.columns)
-
-        # Check if similar codes are present in the current data
-        similar_codes_in_data = [code for code in similar_codes if code in df.index]
-        if similar_codes_in_data:
-            similar_df = df.loc[similar_codes_in_data]
-        else:
-            similar_df = pd.DataFrame(columns=df.columns)
-
-        # Limit hover text length for similar codes
-        if not similar_df.empty:
-            similar_df['hover_text'] = similar_df.index + ': ' + similar_df['name'].str.slice(0, 100)
-
-            # Add trace for similar codes
+        precomputed = PRECOMPUTED_SIMILAR_CODES.get(clicked_code)
+        if precomputed:
+            # Plot similar codes
             fig.add_trace(go.Scattergl(
-                x=similar_df['x'],
-                y=similar_df['y'],
+                x=precomputed['similar_x'],
+                y=precomputed['similar_y'],
                 mode='markers',
                 marker=dict(
                     color='#ffe119',  # Hex code for yellow
@@ -391,21 +372,17 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
                     symbol='circle',
                     line=dict(color='white', width=1)
                 ),
-                customdata=similar_df.index,
-                hovertext=similar_df['hover_text'],
+                customdata=precomputed['similar_codes'],
+                hovertext=[f"{code}: {text}" for code, text in zip(precomputed['similar_codes'], precomputed['similar_hover_text'])],
                 hoverinfo='text',
                 hoverlabel=dict(bgcolor='#ffe119'),  # Set hover box background color
                 showlegend=False,
             ))
 
-        # Add trace for the clicked code on top
-        if not clicked_df.empty:
-            # Limit hover text length
-            clicked_df['hover_text'] = clicked_df.index + ': ' + clicked_df['name'].str.slice(0, 100)
-
+            # Plot clicked code
             fig.add_trace(go.Scattergl(
-                x=clicked_df['x'],
-                y=clicked_df['y'],
+                x=precomputed['clicked_x'],
+                y=precomputed['clicked_y'],
                 mode='markers',
                 marker=dict(
                     color='#FF0000',  # Hex code for red
@@ -413,36 +390,21 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
                     symbol='circle',
                     line=dict(color='white', width=2)
                 ),
-                customdata=clicked_df.index,
-                hovertext=clicked_df['hover_text'],
+                customdata=[precomputed['clicked_code']],
+                hovertext=precomputed['clicked_hover_text'],
                 hoverinfo='text',
                 hoverlabel=dict(bgcolor='#FF0000'),  # Set hover box background color
                 showlegend=False,
             ))
 
-            # Center the view on the clicked code and similar codes
-            x_coords = pd.concat([clicked_df['x'], similar_df['x']]) if not similar_df.empty else clicked_df['x']
-            y_coords = pd.concat([clicked_df['y'], similar_df['y']]) if not similar_df.empty else clicked_df['y']
-
-            # Calculate the center and range while maintaining aspect ratio
-            x_center = x_coords.mean()
-            y_center = y_coords.mean()
-
-            max_range = max(x_coords.max() - x_coords.min(), y_coords.max() - y_coords.min())
-            if max_range == 0:
-                max_range = (X_MAX - X_MIN) * 0.05  # Set a minimal range if zero
-
-            padding = max_range * 0.1  # 10% padding
-
-            x_min = x_center - (max_range / 2) - padding
-            x_max = x_center + (max_range / 2) + padding
-            y_min = y_center - (max_range / 2) - padding
-            y_max = y_center + (max_range / 2) + padding
-
+            # Update the axes ranges
             fig.update_layout(
-                xaxis=dict(range=[x_min, x_max]),
-                yaxis=dict(range=[y_min, y_max], scaleanchor='x', scaleratio=1),
+                xaxis=dict(range=precomputed['x_range']),
+                yaxis=dict(range=precomputed['y_range'], scaleanchor='x', scaleratio=1),
             )
+        else:
+            # Handle cases where precomputed data is not available
+            pass
     elif search_data:
         # Handle search functionality
         x = search_data['x']
@@ -576,8 +538,6 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
 
     return fig
 
-
-
 # Callback to update the info box when a code is clicked
 @callback(
     Output('codes-info-box', 'children'),
@@ -592,15 +552,17 @@ def update_info_box(clickData, filtered_data):
         if not code_info.empty:
             code_info = code_info.iloc[0]
             full_name = code_info.get('name_full', 'No full name available')
-            similar_codes = SIMILAR_CODES_DICT.get(clicked_code, [])
+            similar_codes_with_scores = SIMILAR_CODES_DICT.get(clicked_code, [])
+            # Extract similar codes and scores
+            similar_codes_list = [f"{code}: {score:.4f}" for code, score in similar_codes_with_scores]
 
             # Create the content for the info box
             content = [
                 html.H4(f"{clicked_code}: {full_name}", style={'marginBottom': '10px', 'fontSize': '15px'}),
                 html.H5('Most Similar Codes:', style={'marginBottom': '2px', 'fontSize': '12px'}),
                 html.Ul([
-                    html.Li(f"{code}: {similarity_score:.4f}", style={'marginBottom': '2px', 'fontSize': '12px'})
-                    for code, similarity_score in similar_codes
+                    html.Li(sim_code, style={'marginBottom': '2px', 'fontSize': '12px'})
+                    for sim_code in similar_codes_list
                 ])
             ]
             return content
