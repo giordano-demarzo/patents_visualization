@@ -6,6 +6,7 @@ import glob
 import pickle
 from dash import dcc, html, Input, Output, State, callback, ctx
 import plotly.graph_objs as go
+import plotly.express as px  # For color sequences
 
 # --- Data Loading and Preparation ---
 
@@ -60,15 +61,7 @@ SLIDER_MARKS = get_slider_marks(AVAILABLE_YEARS, step=5)  # Adjust 'step' as nee
 
 # Map first letters to colors and categories
 letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
-colors = ['#e6194b',  # Red
-          '#3cb44b',  # Green
-          # '#ffe119',  # Yellow
-          'white',
-          '#4363d8',  # Blue
-          '#f58231',  # Orange
-          '#911eb4',  # Purple
-          '#42d4f4',  # Cyan
-          '#f032e6']  # Magenta
+colors = px.colors.qualitative.Alphabet[-12:-4]  # Use a predefined color sequence
 
 categories = {
     'A': 'HUMAN NECESSITIES',
@@ -174,8 +167,8 @@ layout = html.Div([
                 min=AVAILABLE_YEARS[0],
                 max=AVAILABLE_YEARS[-1],
                 value=AVAILABLE_YEARS[-1],
-                marks=SLIDER_MARKS,
-                step=None
+                marks={year: str(year) for year in AVAILABLE_YEARS},
+                step=1
             ),
         ], style={'width': '30%', 'display': 'inline-block', 'verticalAlign': 'middle'}),
 
@@ -332,20 +325,22 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         df['category'] = df['first_letter'].map(categories)
         df['category'].fillna('OTHER', inplace=True)
 
-    # Create the base figure using Scatter
+    # Limit hover text length to improve performance
+    df['hover_text'] = df['code'] + ': ' + df['name'].str.slice(0, 100)  # Limit to 100 characters
+
+    # Create the base figure using Scattergl
     fig = go.Figure()
     if not df.empty:
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=df['x'],
             y=df['y'],
             mode='markers',
             marker=dict(
                 color=df['color'],
-                size=6,
+                size=4,  # Adjusted marker size
             ),
             customdata=df['code'],
-            hovertemplate='%{customdata}: %{text}<extra></extra>',
-            text=df['name'],
+            hovertext=df['hover_text'],
             hoverinfo='text',
             showlegend=False,  # Do not show legend inside the plot
         ))
@@ -362,21 +357,23 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         # DataFrame for similar codes
         similar_df = df[df['code'].isin(similar_codes)]
 
+        # Limit hover text length for similar codes
+        similar_df['hover_text'] = similar_df['name'].str.slice(0, 100)
+
         # Add trace for similar codes
         if not similar_df.empty:
-            fig.add_trace(go.Scatter(
+            fig.add_trace(go.Scattergl(
                 x=similar_df['x'],
                 y=similar_df['y'],
                 mode='markers',
                 marker=dict(
                     color='#ffe119',  # Hex code for yellow
-                    size=10,
+                    size=8,
                     symbol='circle',
                     line=dict(color='white', width=1)
                 ),
                 customdata=similar_df['code'],
-                hovertemplate='%{customdata}: %{text}<extra></extra>',
-                text=similar_df['name'],
+                hovertext=similar_df['hover_text'],
                 hoverinfo='text',
                 hoverlabel=dict(bgcolor='#ffe119'),  # Set hover box background color
                 showlegend=False,
@@ -384,19 +381,21 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
 
         # Add trace for the clicked code on top
         if not clicked_df.empty:
-            fig.add_trace(go.Scatter(
+            # Limit hover text length
+            clicked_df['hover_text'] = clicked_df['name'].str.slice(0, 100)
+
+            fig.add_trace(go.Scattergl(
                 x=clicked_df['x'],
                 y=clicked_df['y'],
                 mode='markers',
                 marker=dict(
                     color='#FF0000',  # Hex code for red
-                    size=12,
+                    size=10,
                     symbol='circle',
                     line=dict(color='white', width=2)
                 ),
                 customdata=clicked_df['code'],
-                hovertemplate='%{customdata}: %{text}<extra></extra>',
-                text=clicked_df['name'],
+                hovertext=clicked_df['hover_text'],
                 hoverinfo='text',
                 hoverlabel=dict(bgcolor='#FF0000'),  # Set hover box background color
                 showlegend=False,
@@ -446,14 +445,18 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         y = search_data['y']
         code = search_data['code']
         name = search_data['name']
+        # Limit hover text length
+        hover_text = name[:100]
+
         # Highlight the searched code
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=[x],
             y=[y],
             mode='markers',
             name='',  # Set empty name to avoid extra legend entry
-            marker=dict(size=15, color='white', symbol='circle'),  # White color for visibility
-            hovertext=code + ': ' + name,
+            marker=dict(size=12, color='white', symbol='circle'),  # White color for visibility
+            customdata=[code],
+            hovertext=hover_text,
             hoverinfo='text',
             hoverlabel=dict(bgcolor='white'),  # Set hover box background color
             showlegend=False,  # Do not show in legend
@@ -500,7 +503,7 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
             x_traj.extend(code_df['x_smooth'].tolist() + [np.nan])  # Add NaN to create a break
             y_traj.extend(code_df['y_smooth'].tolist() + [np.nan])
 
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=x_traj,
             y=y_traj,
             mode='lines',
