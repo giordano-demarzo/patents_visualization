@@ -307,14 +307,21 @@ def update_clicked_code(clickData):
     Input('codes-selected-codes', 'data'),
     Input('codes-graph', 'relayoutData'),
     Input('codes-year-slider', 'value'),
-    Input('clicked-code', 'data'),  # Add clicked code as input
+    Input('clicked-code', 'data'),
 )
 def update_graph(data, search_data, selected_codes, relayoutData, selected_year, clicked_code):
+    import time  # Import time module for profiling
+
+    start_time = time.time()
+
     df = pd.DataFrame(data)
 
-    # Map first letters to colors and categories
+    # Set 'code' as index for faster lookup
     if not df.empty:
-        df['first_letter'] = df['code'].str[0]
+        df.set_index('code', inplace=True)
+
+        # Map first letters to colors and categories
+        df['first_letter'] = df.index.str[0]
 
         # Assign colors based on the first letter
         df['color'] = df['first_letter'].map(color_map)
@@ -325,8 +332,10 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         df['category'] = df['first_letter'].map(categories)
         df['category'].fillna('OTHER', inplace=True)
 
-    # Limit hover text length to improve performance
-    df['hover_text'] = df['code'] + ': ' + df['name'].str.slice(0, 100)  # Limit to 100 characters
+        # Limit hover text length to improve performance and include code
+        df['hover_text'] = df.index + ': ' + df['name'].str.slice(0, 100)  # Limit to 100 characters
+    else:
+        df = pd.DataFrame(columns=['x', 'y', 'color', 'hover_text'])  # Ensure df has necessary columns
 
     # Create the base figure using Scattergl
     fig = go.Figure()
@@ -339,11 +348,14 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
                 color=df['color'],
                 size=4,  # Adjusted marker size
             ),
-            customdata=df['code'],
+            customdata=df.index,
             hovertext=df['hover_text'],
             hoverinfo='text',
             showlegend=False,  # Do not show legend inside the plot
         ))
+
+    # Record time after base plot
+    base_plot_time = time.time()
 
     # Highlight the clicked code and similar codes
     if clicked_code:
@@ -351,17 +363,24 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         similar_codes_with_scores = SIMILAR_CODES_DICT.get(clicked_code, [])
         similar_codes = [code for code, _ in similar_codes_with_scores]
 
-        # DataFrame for the clicked code
-        clicked_df = df[df['code'] == clicked_code]
+        # Check if clicked code is in current data
+        if clicked_code in df.index:
+            clicked_df = df.loc[[clicked_code]]
+        else:
+            clicked_df = pd.DataFrame(columns=df.columns)
 
-        # DataFrame for similar codes
-        similar_df = df[df['code'].isin(similar_codes)]
+        # Check if similar codes are present in the current data
+        similar_codes_in_data = [code for code in similar_codes if code in df.index]
+        if similar_codes_in_data:
+            similar_df = df.loc[similar_codes_in_data]
+        else:
+            similar_df = pd.DataFrame(columns=df.columns)
 
         # Limit hover text length for similar codes
-        similar_df['hover_text'] = similar_df['name'].str.slice(0, 100)
-
-        # Add trace for similar codes
         if not similar_df.empty:
+            similar_df['hover_text'] = similar_df.index + ': ' + similar_df['name'].str.slice(0, 100)
+
+            # Add trace for similar codes
             fig.add_trace(go.Scattergl(
                 x=similar_df['x'],
                 y=similar_df['y'],
@@ -372,7 +391,7 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
                     symbol='circle',
                     line=dict(color='white', width=1)
                 ),
-                customdata=similar_df['code'],
+                customdata=similar_df.index,
                 hovertext=similar_df['hover_text'],
                 hoverinfo='text',
                 hoverlabel=dict(bgcolor='#ffe119'),  # Set hover box background color
@@ -382,7 +401,7 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         # Add trace for the clicked code on top
         if not clicked_df.empty:
             # Limit hover text length
-            clicked_df['hover_text'] = clicked_df['name'].str.slice(0, 100)
+            clicked_df['hover_text'] = clicked_df.index + ': ' + clicked_df['name'].str.slice(0, 100)
 
             fig.add_trace(go.Scattergl(
                 x=clicked_df['x'],
@@ -394,50 +413,35 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
                     symbol='circle',
                     line=dict(color='white', width=2)
                 ),
-                customdata=clicked_df['code'],
+                customdata=clicked_df.index,
                 hovertext=clicked_df['hover_text'],
                 hoverinfo='text',
                 hoverlabel=dict(bgcolor='#FF0000'),  # Set hover box background color
                 showlegend=False,
             ))
 
-        # Center the view on the clicked code
-        if not clicked_df.empty:
-            x_clicked = clicked_df['x'].iloc[0]
-            y_clicked = clicked_df['y'].iloc[0]
+            # Center the view on the clicked code and similar codes
+            x_coords = pd.concat([clicked_df['x'], similar_df['x']]) if not similar_df.empty else clicked_df['x']
+            y_coords = pd.concat([clicked_df['y'], similar_df['y']]) if not similar_df.empty else clicked_df['y']
 
-            if not similar_df.empty:
-                # Compute the distances from the clicked code to similar codes
-                dx = abs(similar_df['x'] - x_clicked)
-                dy = abs(similar_df['y'] - y_clicked)
+            # Calculate the center and range while maintaining aspect ratio
+            x_center = x_coords.mean()
+            y_center = y_coords.mean()
 
-                # Get the maximum distances
-                max_dx = dx.max()
-                max_dy = dy.max()
+            max_range = max(x_coords.max() - x_coords.min(), y_coords.max() - y_coords.min())
+            if max_range == 0:
+                max_range = (X_MAX - X_MIN) * 0.05  # Set a minimal range if zero
 
-                # Use the larger of these distances to create a symmetric box
-                max_d = max(max_dx, max_dy)
+            padding = max_range * 0.1  # 10% padding
 
-                # Add some padding
-                padding = max_d * 0.1  # 10% padding
+            x_min = x_center - (max_range / 2) - padding
+            x_max = x_center + (max_range / 2) + padding
+            y_min = y_center - (max_range / 2) - padding
+            y_max = y_center + (max_range / 2) + padding
 
-                # Ensure that max_d is at least some minimal value to avoid zero range
-                if max_d == 0:
-                    max_d = (X_MAX - X_MIN) * 0.01  # 1% of total range
-                    padding = max_d * 0.1
-
-                # Create symmetric ranges centered around clicked code
-                x_range = [x_clicked - (max_d + padding), x_clicked + (max_d + padding)]
-                y_range = [y_clicked - (max_d + padding), y_clicked + (max_d + padding)]
-            else:
-                # No similar codes found, set a default range
-                x_range = [x_clicked - (X_MAX - X_MIN) / 15, x_clicked + (X_MAX - X_MIN) / 15]
-                y_range = [y_clicked - (Y_MAX - Y_MIN) / 15, y_clicked + (Y_MAX - Y_MIN) / 15]
-
-            # Update the figure without altering the aspect ratio
             fig.update_layout(
-                xaxis=dict(range=x_range),
-                yaxis=dict(range=y_range),
+                xaxis=dict(range=[x_min, x_max]),
+                yaxis=dict(range=[y_min, y_max], scaleanchor='x', scaleratio=1),
             )
     elif search_data:
         # Handle search functionality
@@ -446,7 +450,7 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         code = search_data['code']
         name = search_data['name']
         # Limit hover text length
-        hover_text = name[:100]
+        hover_text = code + ': ' + name[:100]
 
         # Highlight the searched code
         fig.add_trace(go.Scattergl(
@@ -462,9 +466,17 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
             showlegend=False,  # Do not show in legend
         ))
         # Update the figure to focus on the searched code
+        max_range = (X_MAX - X_MIN) * 0.1  # Set a reasonable default range
+        padding = max_range * 0.1  # 10% padding
+
+        x_min = x - (max_range / 2) - padding
+        x_max = x + (max_range / 2) + padding
+        y_min = y - (max_range / 2) - padding
+        y_max = y + (max_range / 2) + padding
+
         fig.update_layout(
-            xaxis=dict(range=[x - (X_MAX - X_MIN) / 15, x + (X_MAX - X_MIN) / 15]),
-            yaxis=dict(range=[y - (Y_MAX - Y_MIN) / 15, y + (Y_MAX - Y_MIN) / 15]),
+            xaxis=dict(range=[x_min, x_max]),
+            yaxis=dict(range=[y_min, y_max], scaleanchor='x', scaleratio=1),
         )
     else:
         # Preserve zoom and pan if no search or click
@@ -473,22 +485,30 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
             xmax = relayoutData['xaxis.range[1]']
             ymin = relayoutData['yaxis.range[0]']
             ymax = relayoutData['yaxis.range[1]']
+
             fig.update_layout(
                 xaxis=dict(range=[xmin, xmax]),
-                yaxis=dict(range=[ymin, ymax]),
+                yaxis=dict(range=[ymin, ymax], scaleanchor='x', scaleratio=1),
             )
         else:
-            # Set default axis ranges without aspect ratio constraints
+            # Set default axis ranges with equal aspect ratio
             fig.update_layout(
                 xaxis=dict(range=[X_MIN, X_MAX]),
-                yaxis=dict(range=[Y_MIN, Y_MAX]),
+                yaxis=dict(range=[Y_MIN, Y_MAX], scaleanchor='x', scaleratio=1),
             )
+
+    # Record time after processing clicked code
+    clicked_code_time = time.time()
 
     # Add trajectories for selected codes
     if selected_codes:
+        # Limit the number of trajectories rendered
+        max_trajectories = 5  # Set a limit to avoid overloading
+        selected_codes_limited = selected_codes[:max_trajectories]
+
         # Filter trajectories for selected codes up to the selected year
         traj_df = TRAJECTORY_DATA[
-            (TRAJECTORY_DATA['code'].isin(selected_codes)) &
+            (TRAJECTORY_DATA['code'].isin(selected_codes_limited)) &
             (TRAJECTORY_DATA['year'] <= selected_year)
         ]
 
@@ -498,7 +518,7 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         # Prepare data for plotting trajectories with breaks
         x_traj = []
         y_traj = []
-        for code in selected_codes:
+        for code in selected_codes_limited:
             code_df = traj_df_sorted[traj_df_sorted['code'] == code]
             x_traj.extend(code_df['x_smooth'].tolist() + [np.nan])  # Add NaN to create a break
             y_traj.extend(code_df['y_smooth'].tolist() + [np.nan])
@@ -512,6 +532,9 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
             hoverinfo='skip',  # Disable hoverinfo for the trajectories
             showlegend=False,  # Do not show in legend
         ))
+
+    # Record time after adding trajectories
+    trajectories_time = time.time()
 
     # Update layout
     fig.update_layout(
@@ -536,9 +559,24 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         zeroline=False,
         showticklabels=False,
         showline=False,
+        scaleanchor='x',
+        scaleratio=1,
     )
 
+    # Output timing information for profiling
+    total_time = time.time() - start_time
+    base_plot_duration = base_plot_time - start_time
+    clicked_code_duration = clicked_code_time - base_plot_time
+    trajectories_duration = trajectories_time - clicked_code_time
+
+    print(f"Total update_graph time: {total_time:.3f}s")
+    print(f"Base plot duration: {base_plot_duration:.3f}s")
+    print(f"Clicked code processing duration: {clicked_code_duration:.3f}s")
+    print(f"Trajectories duration: {trajectories_duration:.3f}s")
+
     return fig
+
+
 
 # Callback to update the info box when a code is clicked
 @callback(
