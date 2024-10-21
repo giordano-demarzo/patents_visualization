@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Oct  7 20:34:59 2024
-
-@author: giordano
-"""
-
 # vis_patents.py
 
 import pandas as pd
@@ -15,12 +7,13 @@ from dash import dcc, html, Input, Output, State, callback, callback_context
 import plotly.graph_objs as go
 import dash
 import dash_bootstrap_components as dbc  # For modal components
+import plotly.express as px  # For color sequences
 
 # --- Database Connection and Helper Functions ---
 
 # Database connection
 def get_db_connection():
-    conn = sqlite3.connect('data/patents.db')
+    conn = sqlite3.connect('data/patents_topic.db')
     return conn
 
 # Function to get data boundaries
@@ -46,13 +39,40 @@ def get_data_bounds():
 # Get data boundaries at startup
 X_MIN, X_MAX, Y_MIN, Y_MAX = get_data_bounds()
 
+# Function to get all topics
+def get_all_topics():
+    conn = get_db_connection()
+    query = "SELECT DISTINCT topic_title FROM patents"
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    topics = df['topic_title'].sort_values().unique()
+    return topics
+
+# Get all topics at startup
+ALL_TOPICS = get_all_topics()
+
+# Define colors for topics using a qualitative color sequence with at least 20 colors
+colors = px.colors.qualitative.Alphabet  # 26 colors available
+topic_color_map = dict(zip(ALL_TOPICS, colors[:len(ALL_TOPICS)]))
+
+# Create legend items
+legend_items = []
+for topic in ALL_TOPICS:
+    color = topic_color_map[topic]
+    legend_items.append(
+        html.Div([
+            html.Span('■ ', style={'color': color, 'fontSize': '12px'}),
+            html.Span(f"{topic}", style={'fontWeight': 'bold', 'fontSize': '12px'})
+        ], style={'marginBottom': '5px'})
+    )
+
 # Helper functions
-def get_data_from_db(xmin, xmax, ymin, ymax, year_range, exclude_ids=[], limit=50000):
+def get_data_from_db(xmin, xmax, ymin, ymax, year_range, exclude_ids=[], limit=20000):
     conn = get_db_connection()
     placeholders = ','.join(['?'] * len(exclude_ids))
     params = [xmin, xmax, ymin, ymax, year_range[0], year_range[1]]
     query = """
-        SELECT rowid AS id, x, y, title, year FROM patents
+        SELECT rowid AS id, x, y, title, topic_title FROM patents
         WHERE x BETWEEN ? AND ?
         AND y BETWEEN ? AND ?
         AND year BETWEEN ? AND ?
@@ -71,7 +91,8 @@ def get_data_from_db(xmin, xmax, ymin, ymax, year_range, exclude_ids=[], limit=5
 def search_patent_in_db(title):
     conn = get_db_connection()
     cursor = conn.cursor()
-    query = "SELECT rowid AS id, x, y FROM patents WHERE title = ? LIMIT 1;"
+    # Modify the query to be case-insensitive using COLLATE NOCASE
+    query = "SELECT rowid AS id, x, y FROM patents WHERE title = ? COLLATE NOCASE LIMIT 1;"
     cursor.execute(query, (title,))
     result = cursor.fetchone()
     conn.close()
@@ -102,7 +123,7 @@ def get_patent_details_by_id(patent_id):
 # --- Dash App Layout ---
 
 layout = html.Div([
-    
+
     html.Div(
     [
         html.H1("Patent Space", style={'textAlign': 'center', 'color': 'white'}),
@@ -115,21 +136,9 @@ layout = html.Div([
     style={'backgroundColor': '#2c2c2c', 'position': 'relative'}
     ),
 
-    # Wrapper for graph and slider
+    # Wrapper for slider, graph, and legend
     html.Div([
-        # Graph
-        dcc.Graph(
-            id='patents-graph',
-            config={'displayModeBar': True, 'scrollZoom': True},
-            style={
-                'height': '80vh',
-                'width': '90%',
-                'display': 'inline-block',
-                'backgroundColor': '#2c2c2c'  # Same dark grey background for the graph area
-            }
-        ),
-
-        # Year slider (now vertical and centered on the right)
+        # Year slider (vertical)
         html.Div([
             html.Label("", style={'color': 'white', 'textAlign': 'center'}),
             dcc.RangeSlider(
@@ -137,20 +146,56 @@ layout = html.Div([
                 min=2019,
                 max=2023,
                 value=[2019, 2023],
-                marks={str(year): {'label': str(year), 'style': {'color': 'white'}} for year in range(2019, 2023)},
+                step=1,  # Ensure only integer values can be selected
+                marks={year: {'label': str(year), 'style': {'color': 'white'}} for year in range(2019, 2024)},
                 tooltip={"placement": "left", "always_visible": True},
                 vertical=True,
-                verticalHeight=400
+                verticalHeight=400,
+                allowCross=False,  # Prevent slider handles from crossing
             )
         ], style={
-            'width': '10%',
-            'padding': '20px',
+            'width': '5%',
+            'padding': '50px',
             'display': 'flex',
             'align-items': 'center',
             'justify-content': 'center'
         }),
 
-    ], style={'display': 'flex', 'justifyContent': 'space-between', 'align-items': 'center', 'backgroundColor': '#2c2c2c'}),
+        # Graph
+        html.Div(
+            dcc.Graph(
+                id='patents-graph',
+                config={'displayModeBar': True, 'scrollZoom': True},
+                style={
+                    'height': '80vh',
+                    'width': '100%',
+                    'backgroundColor': '#2c2c2c',
+                }
+            ),
+            style={'flex': '1', 'position': 'relative'}
+        ),
+
+        # Legend
+        html.Div(
+            legend_items,
+            id='patents-legend',
+            style={
+                'backgroundColor': '#2c2c2c',
+                'color': 'white',
+                'fontSize': '10px',
+                'padding': '10px',
+                'border': '1px solid #555',
+                'maxHeight': '80vh',
+                'overflowY': 'auto',
+                'width': '20%',
+            },
+        ),
+
+    ], style={
+        'display': 'flex',
+        'backgroundColor': '#2c2c2c',
+        'height': '80vh',
+    }),
 
     # Search input and button
     html.Div([
@@ -162,7 +207,7 @@ layout = html.Div([
         ),
         html.Button('Search', id='patents-search-button', n_clicks=0, style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': '1px solid #555'})
     ], style={'textAlign': 'center', 'marginTop': '20px'}),
-    
+
     html.Div(id='patents-search-output', style={'textAlign': 'center', 'color': 'red', 'marginTop': '10px'}),
 
     # Store components
@@ -245,7 +290,7 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
         ymin, ymax = Y_MIN, Y_MAX
 
     # Fetch data based on viewport and year range
-    df = get_data_from_db(xmin, xmax, ymin, ymax, year_range, limit=50000)
+    df = get_data_from_db(xmin, xmax, ymin, ymax, year_range, limit=20000)
 
     # Set 'is_selected' flag for the selected patent
     if selected_patent_id is not None:
@@ -253,52 +298,41 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
     else:
         df['is_selected'] = False
 
+    # Assign colors based on topic_title
+    df['color'] = df['topic_title'].map(topic_color_map)
+    # Handle any missing topics by assigning a default color
+    df['color'].fillna('#808080', inplace=True)  # Grey color for unknown topics
+
     # Create the figure
     if not df.empty:
-        df['year'] = pd.to_numeric(df['year'], errors='coerce')
+        # Adjust marker sizes for better interactivity
+        default_size = 4
+        selected_size = 12
 
-        # Use Scattergl for better performance
+        # Limit hover text length to improve performance
+        df['hover_text'] = df['title'].str.slice(0, 100)  # Limit to 100 characters
+
+        # Create scatter plot using go.Scattergl
         fig = go.Figure()
 
-        # Adjust marker sizes to highlight the selected patent
-        sizes = np.where(
-            df['is_selected'],
-            20,  # Larger size for selected patent
-            6    # Default size for other patents
-        )
-
-        # Create scatter plot
         fig.add_trace(go.Scattergl(
             x=df['x'],
             y=df['y'],
             mode='markers',
             marker=dict(
-                size=sizes,
-                color=df['year'],
-                colorscale='viridis',
-                cmin=2019,
-                cmax=2023,
-                line=dict(width=0),
-                colorbar=dict(
-                    title="Year",
-                    ticks="outside",
-                    tickcolor='white',
-                    ticklen=5,
-                    len=0.7,
-                    yanchor="middle",
-                    y=0.5,
-                    xanchor="left",
-                    x=-0.10,
-                ),
+                size=np.where(df['is_selected'], selected_size, default_size),
+                color=df['color'],
+                line=dict(width=np.where(df['is_selected'], 1, 0), color='white'),
             ),
             customdata=df['id'],
-            hovertext=df['title'],
+            hovertext=df['hover_text'],
             hoverinfo='text',
+            showlegend=False,
         ))
 
         # Update figure layout
         fig.update_layout(
-            clickmode='event',
+            clickmode='event+select',
             dragmode='pan',
             uirevision='constant',
             plot_bgcolor='#2c2c2c',
@@ -307,9 +341,7 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
             title_font_color='white',
             xaxis=dict(
                 range=[xmin, xmax],
-                constrain='range',
                 fixedrange=False,
-                autorange=False,
                 showgrid=False,
                 zeroline=False,
                 showticklabels=False,
@@ -317,16 +349,14 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
             ),
             yaxis=dict(
                 range=[ymin, ymax],
-                constrain='range',
                 fixedrange=False,
-                autorange=False,
                 showgrid=False,
                 zeroline=False,
                 showticklabels=False,
                 showline=False,
             ),
             margin=dict(
-                l=150,
+                l=50,
                 r=50,
                 t=50,
                 b=50
@@ -337,8 +367,8 @@ def update_graph(year_range, searched_coords, clickData, relayoutData, selected_
         if triggered_prop_id == 'patents-searched-patent-coords.data' and searched_coords:
             x = searched_coords['x']
             y = searched_coords['y']
-            delta_x = (X_MAX - X_MIN) / 10  # Adjust delta as needed
-            delta_y = (Y_MAX - Y_MIN) / 10  # Adjust delta as needed
+            delta_x = (X_MAX - X_MIN) / 15  # Adjust delta as needed
+            delta_y = (Y_MAX - Y_MIN) / 15  # Adjust delta as needed
             xmin = max(x - delta_x, X_MIN)
             xmax = min(x + delta_x, X_MAX)
             ymin = max(y - delta_y, Y_MIN)

@@ -16,14 +16,14 @@ base_folder = 'data/data_gt2018_embeddings_llama38B.parquet'
 dataframes = []
 
 # Loop through each partition folder and read the parquet file
-for partition in range(17):
+for partition in range(0, 17, 2):
     print(partition)
     partition_folder = os.path.join(base_folder, f'partition={partition}')
     parquet_file = os.path.join(partition_folder, os.listdir(partition_folder)[0])  # Assumes there's only one file per partition
     df = pd.read_parquet(parquet_file)
     
     # Randomly sample 3000 rows from the dataframe
-    sampled_df = df.sample(n=3000, random_state=42)  # Set random_state for reproducibility
+    sampled_df = df.sample(n=2500, random_state=42)  # Set random_state for reproducibility
     
     # Append the sampled dataframe to the list
     dataframes.append(sampled_df)
@@ -54,7 +54,7 @@ embeddings = np.array(merged_df['embedding'].to_list())
 # embeddings_2d = tsne.fit_transform(embeddings)
 
 # Perform UMAP on the embeddings
-umap_model = umap.UMAP(n_components=2, n_jobs=4, n_neighbors=100)
+umap_model = umap.UMAP(n_components=2, n_jobs=4, n_neighbors=15)
 embeddings_2d = umap_model.fit_transform(embeddings)
 
 # Plot the 2D t-SNE embeddings
@@ -78,8 +78,9 @@ merged_df['x'] = embeddings_2d[:, 0]
 merged_df['y'] = embeddings_2d[:, 1]
 
 # Create a new dataframe with the required column names
-final_df = merged_df[['numeric_id', 'x', 'y', 'APPLN_TITLE', 'combined_text', 'IPC', 'APPLN_YR']].copy()
+final_df = merged_df[['numeric_id', 'x', 'y', 'APPLN_TITLE', 'APPLN_ABSTR', 'IPC', 'APPLN_YR']].copy()
 final_df.columns = ['id', 'x', 'y', 'title', 'abstract', 'codes', 'year']
+final_df = final_df.sample(20000)
 
 # Connect to an SQLite database (or create it if it doesn't exist)
 conn = sqlite3.connect('patents.db')
@@ -91,6 +92,128 @@ final_df.to_sql('patents', conn, if_exists='replace', index=False)
 conn.close()
 
 print("Data successfully exported to patents.db")
+
+#%%LDA TOPICS 
+
+import pandas as pd
+import sqlite3
+from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.feature_extraction.text import CountVectorizer
+import matplotlib.pyplot as plt
+import numpy as np
+from nltk.corpus import stopwords
+import nltk
+
+nltk.download('stopwords')
+
+
+# Connect to SQLite database
+conn = sqlite3.connect('data/patents.db')
+
+# Load the patents table into a pandas dataframe
+df = pd.read_sql_query("SELECT * FROM patents", conn)
+
+# Close the connection
+conn.close()
+# Use the 'APPLN_TITLE' column for LDA
+titles = df['abstract'].fillna('')  # Fill NaN values with empty strings
+
+# Define stopwords
+stop_words = list(set(stopwords.words('english')))
+additional_stop_words = ['method', 'first', 'second', 'third', 'claim', 'claims', 'according', 'wherein', 'device', 'technology', 'apparatus', 'system', 'machine', 'methods', 'thereof', 'use', 'therefor', 'uses', 'using', 'systems', 'one']
+stop_words = stop_words + additional_stop_words 
+
+# Vectorize the titles for LDA using a count vectorizer
+vectorizer = CountVectorizer(stop_words=stop_words, max_df=0.95, min_df=2)
+title_matrix = vectorizer.fit_transform(titles)
+
+
+# Define the number of topics
+num_topics = 20
+
+# Create and fit the LDA model
+lda_model = LatentDirichletAllocation(n_components=num_topics, random_state=20)
+lda_topics = lda_model.fit_transform(title_matrix)
+
+
+# Function to display the top words in each topic
+def display_topics(model, feature_names, no_top_words):
+    for topic_idx, topic in enumerate(model.components_):
+        print(f"Topic {topic_idx+1}:")
+        print(" ".join([feature_names[i] for i in topic.argsort()[:-no_top_words - 1:-1]]))
+
+no_top_words = 25
+display_topics(lda_model, vectorizer.get_feature_names_out(), no_top_words)
+
+
+
+
+#%%VISUALIZE AND EXPORT 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+topic_title_dict = {
+    0: "Optical Systems and Imaging Technologies",
+    1: "Mechanical Devices and Surgical Instruments",
+    2: "Vehicle Electronics and Battery Management Systems",
+    3: "Electrical Circuits and Power Management",
+    4: "Wireless Communication and Signal Processing",
+    5: "Data Processing, Machine Learning, and AI Models",
+    6: "Chemical Engineering and Material Processing",
+    7: "Structural Components and Manufacturing",
+    8: "Organic Chemistry and Polymer Technologies",
+    9: "Telecommunication Networks and Data Transmission",
+    10: "Object Detection and Recognition Technologies",
+    11: "Mechanical Assemblies and Industrial Tools",
+    12: "Pharmaceutical Formulations and Chemical Compounds",
+    13: "Fluid Control and Heat Transfer Systems",
+    14: "Battery Technology and Energy Storage",
+    15: "Biotechnology and Genetic Engineering",
+    16: "User Interface Design and Mobile Computing",
+    17: "Robotics, Sensors, and Control Systems",
+    18: "Advanced Chemical Compounds and Catalysts",
+    19: "Composite Materials and Advanced Manufacturing"
+}
+
+# Use the topic distribution to cluster the patents based on their dominant topic
+df['dominant_topic'] = lda_topics.argmax(axis=1)
+
+# Assign topic titles to a new column
+df['topic_title'] = df['dominant_topic'].map(topic_title_dict)
+
+# Set the color palette based on the number of unique topics
+unique_topics = df['dominant_topic'].nunique()
+palette = sns.color_palette("hsv", unique_topics)
+
+# Create a scatter plot using the 'x' and 'y' columns, colored by 'topic_title'
+plt.figure(figsize=(12, 8))
+sns.scatterplot(
+    data=df,
+    x='x', y='y',
+    hue='topic_title',
+    palette=palette,
+    legend='full',
+    alpha=0.7,
+    s=50
+)
+
+# Customize the plot
+plt.title('Patent Clusters by Topic', fontsize=16)
+plt.xlabel('UMAP/T-SNE Dimension 1')
+plt.ylabel('UMAP/T-SNE Dimension 2')
+plt.legend(title='Topic', bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.grid(True)
+
+# Show the plot
+plt.show()
+
+
+# Save the updated dataframe with clusters back to the SQLite database
+conn = sqlite3.connect('data/patents_topic.db')
+df.to_sql('patents', conn, if_exists='replace', index=False)
+conn.close()
+
+print("Data with topics successfully exported to patents.db")
 
 #%%TSNE FOR CODES 
 import pandas as pd

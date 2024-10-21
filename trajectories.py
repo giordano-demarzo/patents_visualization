@@ -14,7 +14,7 @@ from scipy.interpolate import interp1d
 # Step 1: Load all data files
 def load_data():
     data_list = []
-    csv_files = glob.glob('generated_files/code_*.csv')
+    csv_files = glob.glob('data/codes_data/code_*.csv')
     print(csv_files)
     for file in csv_files:
         year = int(file.split('code_')[1].split('.')[0])
@@ -39,8 +39,8 @@ def precompute_trajectories(full_data):
 
             # Create interpolation functions
             interp_years = np.arange(years.min(), years.max() + 1)
-            f_x = interp1d(years, x, kind='cubic', fill_value='extrapolate')
-            f_y = interp1d(years, y, kind='cubic', fill_value='extrapolate')
+            f_x = interp1d(years, x, kind='linear', fill_value='extrapolate')
+            f_y = interp1d(years, y, kind='linear', fill_value='extrapolate')
 
             # Compute smooth trajectories
             x_smooth = f_x(interp_years)
@@ -67,4 +67,4 @@ if __name__ == '__main__':
     full_data = load_data()
     trajectory_data = precompute_trajectories(full_data)
     # Save to Parquet format for efficient storage and quick loading
-    trajectory_data.to_parquet('precomputed_trajectories.parquet', index=False)
+    trajectory_data.to_parquet('data/precomputed_trajectories.parquet', index=False)
