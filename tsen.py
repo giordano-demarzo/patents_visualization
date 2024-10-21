@@ -339,3 +339,113 @@ if __name__ == '__main__':
     trajectory_data = precompute_trajectories(full_data)
     # Save to Parquet format for efficient storage and quick loading
     trajectory_data.to_parquet('data/precomputed_trajectories.parquet', index=False)
+    
+#%%PRECOMPUTE SIMILAR CODES
+
+import pandas as pd
+import numpy as np
+import glob
+import pickle
+
+# --- Load Data ---
+
+# Function to load data from CSV files
+def load_data():
+    data_dict = {}
+    csv_files = glob.glob('data/codes_data/code_*.csv')
+    for file in csv_files:
+        year = int(file.split('code_')[1].split('.')[0])
+        df = pd.read_csv(file)
+        df['year'] = year  # Add a 'year' column
+        data_dict[year] = df
+    return data_dict
+
+# Load all data
+DATA_DICT = load_data()
+
+# Load the similar codes data
+with open('data/top_10_codes_2019_2023_llama8b_abstracts.pkl', 'rb') as f:
+    SIMILAR_CODES_DICT = pickle.load(f)
+
+# Combine data from all years for comprehensive coverage
+ALL_YEARS_DF = pd.concat(DATA_DICT.values(), ignore_index=True)
+
+# Ensure that 'code' is a string
+ALL_YEARS_DF['code'] = ALL_YEARS_DF['code'].astype(str)
+
+# Set 'code' as index for faster lookup
+ALL_YEARS_DF.set_index('code', inplace=True)
+
+# --- Precompute Data ---
+
+# Initialize dictionary to store precomputed data
+precomputed_similar_codes = {}
+
+for code, similar_codes_with_scores in SIMILAR_CODES_DICT.items():
+    # Get the list of similar codes
+    similar_codes = [sim_code for sim_code, _ in similar_codes_with_scores]
+    
+    # Filter similar codes present in the data
+    similar_codes_in_data = [c for c in similar_codes if c in ALL_YEARS_DF.index]
+    
+    # Get data for the clicked code
+    if code in ALL_YEARS_DF.index:
+        clicked_df = ALL_YEARS_DF.loc[[code]]
+    else:
+        clicked_df = pd.DataFrame(columns=ALL_YEARS_DF.columns)
+    
+    # Get data for similar codes
+    if similar_codes_in_data:
+        similar_df = ALL_YEARS_DF.loc[similar_codes_in_data]
+    else:
+        similar_df = pd.DataFrame(columns=ALL_YEARS_DF.columns)
+    
+    # Concatenate coordinates
+    x_coords = pd.concat([clicked_df['x'], similar_df['x']])
+    y_coords = pd.concat([clicked_df['y'], similar_df['y']])
+    
+    # Calculate center and range
+    x_center = x_coords.mean()
+    y_center = y_coords.mean()
+    
+    x_min = x_coords.min()
+    x_max = x_coords.max()
+    y_min = y_coords.min()
+    y_max = y_coords.max()
+    
+    # Calculate maximum range to maintain aspect ratio
+    max_range = max(x_max - x_min, y_max - y_min)
+    if max_range == 0:
+        max_range = 1  # Set a minimal range if zero
+    
+    padding = max_range * 0.1  # 10% padding
+    
+    # Define axis ranges
+    x_range = [x_center - (max_range / 2) - padding, x_center + (max_range / 2) + padding]
+    y_range = [y_center - (max_range / 2) - padding, y_center + (max_range / 2) + padding]
+    
+    # Prepare hover texts
+    clicked_hover_text = clicked_df['name'].str.slice(0, 100)
+    similar_hover_text = similar_df['name'].str.slice(0, 100)
+    
+    # Store precomputed data
+    precomputed_similar_codes[code] = {
+        'clicked_code': code,
+        'clicked_x': clicked_df['x'].tolist(),
+        'clicked_y': clicked_df['y'].tolist(),
+        'clicked_hover_text': clicked_hover_text.tolist(),
+        'similar_codes': similar_codes_in_data,
+        'similar_x': similar_df['x'].tolist(),
+        'similar_y': similar_df['y'].tolist(),
+        'similar_hover_text': similar_hover_text.tolist(),
+        'x_range': x_range,
+        'y_range': y_range,
+    }
+
+# --- Save Precomputed Data ---
+
+# Save the precomputed data to a pickle file
+with open('data/precomputed_similar_codes.pkl', 'wb') as f:
+    pickle.dump(precomputed_similar_codes, f)
+
+print("Precomputed data saved successfully.")
