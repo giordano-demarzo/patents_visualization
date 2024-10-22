@@ -103,15 +103,15 @@ layout = html.Div([
         dbc.Row([
             dbc.Col([
                 html.P(
-                    "The plot on the left is a t-SNE projection of the embeddings of a selection of technological codes. Each dot represents the embedding of a technological code based on the text of a specific patent in which it appears.\n\n"
-                    "The embeddings are obtained from a model that has been fine-tuned on patent abstracts and claims, where technological codes have been added to the model as additional special tokens. That is, we fine-tune the model on strings of the form 'TECH_CODE1 TECH_CODE2 ... TECH_CODE10 [END_TECH_LIST_TOKEN] patent text...'.\n\n"
-                    "Hover over a dot to see the patent's text on the right. The color of each token in the text corresponds to its importance in the model's prediction of the presence of that code in the list of technological codes for that patent. The color is determined by the SHAP value of the token, which measures the token's impact on the model's prediction. These values provide insight into which parts of the text influence the model's understanding (and embedding) of the meaning of the target technological code.\n\n"
-                    "The same technology forms several clusters, suggesting that the same code can have different meanings based on the context in which it is used. For example, the code 'G06F3' (double-click on the legend to show only the corresponding points). By examining the words highlighted in different clusters, it's clear that in one cluster, the code refers to transferring data to printers, in another to transferring to and from storage devices, and in other cases to the use of a mouse. This demonstrates the power of embeddings to capture the meaning of a code in different contexts.",
-                    style={'color': 'white'}
+                    "The plot on the left shows a t-SNE projection of embeddings for selected technological codes. Each point represents the embedding of a technological code, derived from the text of a specific patent where the code appears. These embeddings are obtained from a model fine-tuned on patent abstracts and claims, where technological codes are treated as special tokens. The model is trained on sequences like:"
+                    "\n\n"
+                    "'TECH_CODE1 TECH_CODE2 ... [END_TECH_LIST_TOKEN] patent text...'."
+                    "\n\n"
+                    "Hover over any point to see the corresponding patent's text on the right. The color of each token in the text reflects its importance in predicting the presence of a particular technological code. These colors are based on SHAP values, which highlight the impact of each token on the model's prediction. This allows us to understand which parts of the text influence the model’s comprehension of the code. Interestingly, some codes form multiple clusters, indicating that their meaning can vary depending on context. For example, the code 'G06F3' clusters differently when used for data transfer to printers, to storage devices, or for mouse interactions. This illustrates the power of embeddings to capture nuanced meanings of technological codes in various contexts.",
+                    style={'color': 'white', 'whiteSpace': 'pre-line'}
                 ),
             ], width=10, style={'margin-left': 'auto', 'margin-right': 'auto'})  # Use CSS to center the column
-        ], style={'marginTop': '20px', 'fontSize': '16px'}),
-
+        ], style={'marginTop': '20px', 'fontSize': '14px'}),
         dbc.Row([
             dbc.Col([
                 dcc.Graph(

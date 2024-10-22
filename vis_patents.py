@@ -1,5 +1,3 @@
-# vis_patents.py
-
 import pandas as pd
 import numpy as np
 import sqlite3
@@ -132,6 +130,11 @@ layout = html.Div([
             dcc.Link('Home', href='/', className='home-button', style={'color': 'white'}),
             style={'position': 'absolute', 'top': '15px', 'left': '15px', 'color': 'white'}
         ),
+        # Help button
+        html.Div(
+            html.Button("Help", id='patents-help-button', n_clicks=0, style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': 'none'}),
+            style={'position': 'absolute', 'top': '15px', 'right': '15px', 'color': 'white'}
+        ),
     ],
     style={'backgroundColor': '#2c2c2c', 'position': 'relative'}
     ),
@@ -243,10 +246,56 @@ layout = html.Div([
         ],
         id='patents-modal',
         is_open=False,
-    )
+    ),
+
+    # Modal component for displaying help information
+    dbc.Modal(
+        [
+            dbc.ModalHeader(
+                dbc.ModalTitle("Visualization Help", style={'color': 'white'}),
+                style={'backgroundColor': '#2c2c2c'},
+                close_button=True  # Use built-in close button
+            ),
+            dbc.ModalBody(
+                [
+                    html.H4("How to use this visualization", style={'color': 'white'}),
+                    html.P(
+                        "This visualization allows you to explore patents in a 2D space. Each point represents a patent, and the position reflects similarities between patents based on their content.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "You can zoom and pan around the graph using your mouse or trackpad.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Click on a point to view details about the patent, including its title and abstract.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Use the year slider on the left to filter patents by publication year.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Use the search box below the graph to search for a specific patent by title.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "The colors of the points represent different topics assigned to the patents.",
+                        style={'color': 'white'}
+                    ),
+                    # Add more explanations as needed
+                ],
+                style={'backgroundColor': '#2c2c2c'}
+            ),
+        ],
+        id='patents-help-modal',
+        is_open=False,
+    ),
+
 ], style={'backgroundColor': '#2c2c2c', 'height': '100vh'})  # Dark grey background for the whole page
 
 # --- Callbacks ---
+
 @callback(
     Output('patents-graph', 'figure'),
     Output('patents-selected-id', 'data'),  # Output for selected patent ID
@@ -454,3 +503,15 @@ def display_patent_details(clickData, n_clicks_close, is_open_state):
         return False, dash.no_update, dash.no_update
     else:
         return dash.no_update, dash.no_update, dash.no_update
+
+# Callback to toggle the help modal
+@callback(
+    Output('patents-help-modal', 'is_open'),
+    Input('patents-help-button', 'n_clicks'),
+    State('patents-help-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_help_modal(n_clicks, is_open):
+    if n_clicks:
+        return not is_open
+    return is_open

@@ -5,6 +5,7 @@ import numpy as np
 import glob
 import pickle
 from dash import dcc, html, Input, Output, State, callback, ctx
+import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 import plotly.express as px  # For color sequences
 
@@ -99,6 +100,11 @@ layout = html.Div([
         html.Div(
             dcc.Link('Home', href='/', className='home-button', style={'color': 'white'}),
             style={'position': 'absolute', 'top': '15px', 'left': '15px', 'color': 'white'}
+        ),
+        # Help button
+        html.Div(
+            html.Button("Help", id='codes-help-button', n_clicks=0, style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': 'none'}),
+            style={'position': 'absolute', 'top': '15px', 'right': '15px', 'color': 'white'}
         ),
     ],
     style={'backgroundColor': '#2c2c2c', 'position': 'relative'}
@@ -199,6 +205,51 @@ layout = html.Div([
     dcc.Store(id='codes-selected-codes', data=[]),  # Store for selected codes
     dcc.Store(id='codes-click-counter', data=0),  # Store to count clicks
     dcc.Store(id='clicked-code', data=None),  # Store for the clicked code
+
+    # Modal component for displaying help information
+    dbc.Modal(
+        [
+            dbc.ModalHeader(
+                dbc.ModalTitle("Visualization Help", style={'color': 'white'}),
+                style={'backgroundColor': '#2c2c2c'},
+                close_button=True  # Use built-in close button
+            ),
+            dbc.ModalBody(
+                [
+                    html.H4("How to use this visualization", style={'color': 'white'}),
+                    html.P(
+                        "This visualization allows you to explore technological codes in a 2D space. Each point represents a code, and the position reflects similarities between codes based on their usage in patents.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "You can zoom and pan around the graph using your mouse or trackpad.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Click on a point to view details about the code and see its most similar codes.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Use the year slider to filter codes by the selected year.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Use the search box to locate a specific technological code. The view will zoom into that code, and it will be highlighted.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Click on 'Show All Trajectories' to display the trajectories of all codes over time, or 'Remove All Trajectories' to hide them.",
+                        style={'color': 'white'}
+                    ),
+                    # Add more explanations as needed
+                ],
+                style={'backgroundColor': '#2c2c2c'}
+            ),
+        ],
+        id='codes-help-modal',
+        is_open=False,
+    ),
+
 ], style={'height': '100vh', 'backgroundColor': '#2c2c2c', 'margin': '0', 'padding': '0'})  # Set the overall background color and remove margins
 
 # --- Callbacks ---
@@ -576,4 +627,16 @@ def update_info_box(clickData, filtered_data):
             return ''
     else:
         # If no code is clicked, return an empty Div
-        return ''
+        return 'Click on a technological code to visualize the most likely novel technology combinations involving it'
+
+# Callback to toggle the help modal
+@callback(
+    Output('codes-help-modal', 'is_open'),
+    Input('codes-help-button', 'n_clicks'),
+    State('codes-help-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_help_modal(n_clicks, is_open):
+    if n_clicks:
+        return not is_open
+    return is_open
