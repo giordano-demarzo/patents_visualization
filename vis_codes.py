@@ -103,7 +103,7 @@ layout = html.Div([
         ),
         # Help button
         html.Div(
-            html.Button("Help", id='codes-help-button', n_clicks=0, style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': 'none'}),
+            html.Button("Visualization Explanation", id='codes-help-button', n_clicks=0, style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': 'none'}),
             style={'position': 'absolute', 'top': '15px', 'right': '15px', 'color': 'white'}
         ),
     ],
@@ -196,6 +196,7 @@ layout = html.Div([
             ),
             html.Button('Search', id='codes-search-button', n_clicks=0,
                         style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': '1px solid #555'}),
+            html.Div(id='codes-search-message', style={'color': 'white'}),  # Added Div for search messages
         ], style={'width': '30%', 'display': 'inline-block', 'textAlign': 'right', 'verticalAlign': 'middle'}),
     ], style={'backgroundColor': '#2c2c2c', 'padding': '10px'}),
 
@@ -218,7 +219,7 @@ layout = html.Div([
                 [
                     html.H4("How to use this visualization", style={'color': 'white'}),
                     html.P(
-                        "This visualization allows you to explore technological codes in a 2D space. Each point represents a code, and the position reflects similarities between codes based on their usage in patents.",
+                        "This visualization allows you to explore technological codes in a 2D space. Each point represents a code, and the position reflects similarities between codes. First we computed the embedding of each code as the average embedding of all the patents containing it. Then we performed a dimensionality reduction of these embeddings using UMAP.",
                         style={'color': 'white'}
                     ),
                     html.P(
@@ -226,19 +227,19 @@ layout = html.Div([
                         style={'color': 'white'}
                     ),
                     html.P(
-                        "Click on a point to view details about the code and see its most similar codes.",
-                        style={'color': 'white'}
-                    ),
-                    html.P(
-                        "Use the year slider to filter codes by the selected year.",
-                        style={'color': 'white'}
-                    ),
-                    html.P(
-                        "Use the search box to locate a specific technological code. The view will zoom into that code, and it will be highlighted.",
+                        "We computed the position of technological codes for all year in the period 2019-2023. Use the year slider to select the year.",
                         style={'color': 'white'}
                     ),
                     html.P(
                         "Click on 'Show All Trajectories' to display the trajectories of all codes over time, or 'Remove All Trajectories' to hide them.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Click on a point to view details about the code and see the most likely future innovations involving that code. An innovation is defined as the first time two technological codes are combined in a patent. This will also display the code trajectory.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Use the search box to locate a specific technological code. The view will zoom into that code, and it will be highlighted.",
                         style={'color': 'white'}
                     ),
                     # Add more explanations as needed
@@ -326,6 +327,7 @@ def update_selected_codes(click_counter, show_all_n_clicks, remove_all_n_clicks,
 # Handle search functionality
 @callback(
     Output('codes-search-data', 'data'),
+    Output('codes-search-message', 'children'),  # Added Output
     Input('codes-search-button', 'n_clicks'),
     State('codes-search-input', 'value'),
     State('codes-filtered-data', 'data')
@@ -335,8 +337,10 @@ def search_code(n_clicks, search_value, data):
         df = pd.DataFrame(data)
         matched_code = df[df['code'] == search_value]
         if not matched_code.empty:
-            return matched_code.iloc[0].to_dict()
-    return None
+            return matched_code.iloc[0].to_dict(), ''
+        else:
+            return None, 'Code not found'
+    return None, ''
 
 # Callback to store the clicked code
 @callback(
@@ -397,16 +401,22 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
     else:
         df_sampled = df
 
-    # Ensure that clicked code and similar codes are included
+    # Ensure that clicked code, searched code, and similar codes are included
+    codes_to_include = []
+
     if clicked_code:
         # Get the similar codes
         similar_codes_with_scores = SIMILAR_CODES_DICT.get(clicked_code, [])
         similar_codes = [code for code, _ in similar_codes_with_scores]
-        codes_to_include = [clicked_code] + similar_codes
+        codes_to_include += [clicked_code] + similar_codes
 
+    if search_data:
+        searched_code = search_data['code']
+        codes_to_include.append(searched_code)
+
+    if codes_to_include:
         # Get data for these codes
         codes_df = df.loc[df.index.intersection(codes_to_include)]
-
         # Combine sampled data and codes_df
         df_plot = pd.concat([df_sampled, codes_df]).drop_duplicates()
     else:
@@ -441,6 +451,8 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
         else:
             clicked_df = pd.DataFrame(columns=df.columns)
 
+        similar_codes_with_scores = SIMILAR_CODES_DICT.get(clicked_code, [])
+        similar_codes = [code for code, _ in similar_codes_with_scores]
         similar_codes_in_data = [code for code in similar_codes if code in df.index]
         if similar_codes_in_data:
             similar_df = df.loc[similar_codes_in_data]
@@ -490,11 +502,45 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
                 showlegend=False,
             ))
 
+    # Highlight the searched code
+    if search_data:
+        searched_code = search_data['code']
+        if searched_code in df.index:
+            searched_df = df.loc[[searched_code]]
+            searched_df['hover_text'] = searched_df.index + ': ' + searched_df['name'].str.slice(0, 100)
+
+            # Add trace for searched code
+            fig.add_trace(go.Scattergl(
+                x=searched_df['x'],
+                y=searched_df['y'],
+                mode='markers',
+                marker=dict(
+                    color='#FF0000',  # Green
+                    size=12,
+                    symbol='circle',
+                    line=dict(color='white', width=2)
+                ),
+                customdata=searched_df.index,
+                hovertext=searched_df['hover_text'],
+                hoverinfo='text',
+                hoverlabel=dict(bgcolor='#00FF00'),
+                showlegend=False,
+            ))
+
     clicked_code_time = time.time()
 
-    # --- Optimization: Avoid Changing Axes Ranges ---
-    # Preserve zoom and pan if possible
-    if relayoutData and 'xaxis.range[0]' in relayoutData:
+    # --- Optimization: Adjust Axes Ranges ---
+    if search_data:
+        # Center the axes on the searched code
+        x_center = search_data['x']
+        y_center = search_data['y']
+        x_range = [x_center - 0.1, x_center + 0.1]  # Adjust as needed
+        y_range = [y_center - 0.1, y_center + 0.1]
+        fig.update_layout(
+            xaxis=dict(range=x_range),
+            yaxis=dict(range=y_range, scaleanchor='x', scaleratio=1),
+        )
+    elif relayoutData and 'xaxis.range[0]' in relayoutData:
         xmin = relayoutData['xaxis.range[0]']
         xmax = relayoutData['xaxis.range[1]']
         ymin = relayoutData['yaxis.range[0]']
@@ -597,15 +643,23 @@ def update_graph(data, search_data, selected_codes, relayoutData, selected_year,
 
     return fig
 
-# Callback to update the info box when a code is clicked
+# Callback to update the info box when a code is clicked or searched
 @callback(
     Output('codes-info-box', 'children'),
     Input('codes-graph', 'clickData'),
+    Input('codes-search-data', 'data'),  # Added Input
     State('codes-filtered-data', 'data'),
 )
-def update_info_box(clickData, filtered_data):
+def update_info_box(clickData, search_data, filtered_data):
+    # If clickData is present, use it
     if clickData and 'points' in clickData and len(clickData['points']) > 0:
         clicked_code = clickData['points'][0]['customdata']
+    elif search_data:
+        clicked_code = search_data['code']
+    else:
+        clicked_code = None
+
+    if clicked_code:
         df = pd.DataFrame(filtered_data)
         code_info = df[df['code'] == clicked_code]
         if not code_info.empty:
@@ -616,7 +670,7 @@ def update_info_box(clickData, filtered_data):
             # Create the content for the info box
             content = [
                 html.H4(f"{clicked_code}: {full_name}", style={'marginBottom': '10px', 'fontSize': '15px'}),
-                html.H5('Most Similar Codes:', style={'marginBottom': '2px', 'fontSize': '12px'}),
+                html.H5(f'Most likely future innovative combinations, ranked by their similarity with {clicked_code}. Only codes that were never combined before with {clicked_code} are shown', style={'marginBottom': '2px', 'fontSize': '12px'}),
                 html.Ul([
                     html.Li(f"{code}: {similarity_score:.4f}", style={'marginBottom': '2px', 'fontSize': '12px'})
                     for code, similarity_score in similar_codes
@@ -626,7 +680,7 @@ def update_info_box(clickData, filtered_data):
         else:
             return ''
     else:
-        # If no code is clicked, return an empty Div
+        # If no code is clicked or searched, return default message
         return 'Click on a technological code to visualize the most likely novel technology combinations involving it'
 
 # Callback to toggle the help modal

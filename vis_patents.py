@@ -132,7 +132,7 @@ layout = html.Div([
         ),
         # Help button
         html.Div(
-            html.Button("Help", id='patents-help-button', n_clicks=0, style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': 'none'}),
+            html.Button("Visualization Explanation", id='patents-help-button', n_clicks=0, style={'backgroundColor': '#3a3a3a', 'color': 'white', 'border': 'none'}),
             style={'position': 'absolute', 'top': '15px', 'right': '15px', 'color': 'white'}
         ),
     ],
@@ -260,7 +260,11 @@ layout = html.Div([
                 [
                     html.H4("How to use this visualization", style={'color': 'white'}),
                     html.P(
-                        "This visualization allows you to explore patents in a 2D space. Each point represents a patent, and the position reflects similarities between patents based on their content.",
+                        "This visualization allows you to explore patents in a 2D space. Each point represents a patent, and the position reflects similarities between patents based on their content. These positions have been obtained embedding the abstract of each patent using Llama 3 8B and then performing a dimensionality redaction with UMAP.",
+                        style={'color': 'white'}
+                    ),
+                    html.P(
+                        "Patents have been assigned to different topics applying LDA to the abstracts and then the topics have been mapped to human-readable categories with the help of ChatGPT. Colors reflect the different categories identified with this procedure.",
                         style={'color': 'white'}
                     ),
                     html.P(
@@ -277,10 +281,6 @@ layout = html.Div([
                     ),
                     html.P(
                         "Use the search box below the graph to search for a specific patent by title.",
-                        style={'color': 'white'}
-                    ),
-                    html.P(
-                        "The colors of the points represent different topics assigned to the patents.",
                         style={'color': 'white'}
                     ),
                     # Add more explanations as needed
