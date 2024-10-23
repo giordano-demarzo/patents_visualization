@@ -6,3 +6,9 @@ plotly
 gunicorn
 fastparquet
 joblib
+sqlite3
+scikit-learn
+matplotlib
+seaborn
+umap-learn
+nltk

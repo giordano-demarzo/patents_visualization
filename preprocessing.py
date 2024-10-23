@@ -57,7 +57,7 @@ embeddings = np.array(merged_df['embedding'].to_list())
 umap_model = umap.UMAP(n_components=2, n_jobs=4, n_neighbors=15)
 embeddings_2d = umap_model.fit_transform(embeddings)
 
-# Plot the 2D t-SNE embeddings
+# Plot the 2D projected embeddings
 plt.figure(figsize=(10, 8))
 plt.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], s=10, alpha=0.7)
 plt.title('t-SNE visualization of Embeddings', fontsize=16)
@@ -71,9 +71,9 @@ plt.show()
 import pandas as pd
 import sqlite3
 
-# Assuming you already have the merged_df dataframe and the t-SNE results (embeddings_2d)
+# Assuming you already have the merged_df dataframe and the t-SNE/UMAP results (embeddings_2d)
 
-# Add the x and y coordinates from t-SNE to the dataframe
+# Add the x and y coordinates from t-SNE/UMAP to the dataframe
 merged_df['x'] = embeddings_2d[:, 0]
 merged_df['y'] = embeddings_2d[:, 1]
 
@@ -215,7 +215,7 @@ conn.close()
 
 print("Data with topics successfully exported to patents.db")
 
-#%%TSNE FOR CODES 
+#%%TSNE/UMAP FOR CODES 
 import pandas as pd
 import pickle
 import numpy as np

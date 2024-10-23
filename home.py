@@ -59,8 +59,7 @@ layout = html.Div([
     # Introductory text
     html.Div([
         html.P(
-            "Explore interactive visualizations of patents and technological codes. "
-            "Use the navigation links below to begin.",
+            "Explore interactive visualizations of patents and technological codes. \n Understand how Large Language Models capture technologies within patents. \n Use the navigation links below to visualize the Patent Space and the Technology Space",
             style={
                 'color': 'white',
                 'fontSize': '18px',
