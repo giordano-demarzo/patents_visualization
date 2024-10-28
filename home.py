@@ -137,6 +137,21 @@ layout = html.Div([
             ], width=6),
         ], align="center"),
     ], fluid=True),
+    # Footer
+    html.Div(
+        [
+            html.Hr(style={'borderTop': '1px solid #555'}),
+            html.P(
+                "This project was realized by Segun Taofeek Aroyehun, Giordano De Marzo, Enrico Maria Fenoaltea, Filippo Santoro, and Andrea Tacchella.",
+                style={'textAlign': 'center', 'color': 'white', 'fontSize': '14px'}
+            ),
+            html.P(
+                "Affiliations: Konstanz University and Enrico Fermi Research Center",
+                style={'textAlign': 'center', 'color': 'white', 'fontSize': '14px'}
+            )
+        ],
+        style={'padding': '10px', 'backgroundColor': '#2c2c2c', 'marginTop': '50px'}
+    ),
     
 ], style={'backgroundColor': '#2c2c2c', 'paddingTop': '50px'})
 
